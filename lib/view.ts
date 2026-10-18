@@ -84,6 +84,7 @@ export type DecisionListItem = {
   totalMinor: string;
   currency: string;
   createdAt: string;
+  actor: string | null;
 };
 
 export type BootstrapView = {

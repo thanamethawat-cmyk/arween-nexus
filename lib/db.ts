@@ -944,9 +944,10 @@ export async function listDecisions(): Promise<DecisionListItem[]> {
     total_minor: string;
     currency: string;
     created_at: Date;
+    actor: string | null;
   }>(
     `SELECT d.decision_id, d.outcome, d.status, d.winning_rule_id, i.invoice_number, c.legal_name,
-            i.total_minor::text, i.currency, d.created_at
+            i.total_minor::text, i.currency, d.created_at, d.actor
      FROM payment_decisions d
      JOIN invoices i ON i.invoice_id = d.invoice_id
      JOIN counterparties c ON c.counterparty_id = i.counterparty_id
@@ -963,6 +964,7 @@ export async function listDecisions(): Promise<DecisionListItem[]> {
     totalMinor: row.total_minor,
     currency: row.currency,
     createdAt: row.created_at.toISOString(),
+    actor: row.actor,
   }));
 }
 

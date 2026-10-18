@@ -1,210 +1,21 @@
 @import "tailwindcss";
 
-:root {
-  --paper: #f3efe4;
-  --paper-2: #fffaf1;
-  --ink: #1c1915;
-  --muted: #6d655b;
-  --line: #e3d9c6;
-  --teal: #0e6b62;
-  --pay: #1f7a4d;
-  --pay-bg: #e7f6ee;
-  --partial: #8a5a00;
-  --partial-bg: #fff4d8;
-  --hold: #9f1239;
-  --hold-bg: #fde8ee;
-  --insufficient: #9a3412;
-  --insufficient-bg: #f8e6d8;
-  --background: var(--paper);
-  --foreground: var(--ink);
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-inter), var(--font-thai), "Noto Sans Thai", sans-serif;
+  --color-background: #fafafa;
+  --color-foreground: #09090b;
 }
 
 * { box-sizing: border-box; }
 
+html, body { margin: 0; min-height: 100%; background: #fafafa; color: #09090b; }
+
 body {
-  margin: 0;
-  min-height: 100vh;
-  background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(14, 107, 98, 0.08), transparent 50%),
-    linear-gradient(180deg, #f7f3ea 0%, var(--paper) 280px);
-  color: var(--ink);
-  font-family: var(--font-sans), "Noto Sans Thai", sans-serif;
+  font-family: var(--font-inter), var(--font-thai), "Noto Sans Thai", sans-serif;
 }
 
-button, input, textarea { font: inherit; }
-
-.shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding-bottom: 64px; }
-
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-end;
-  padding: 28px 0 18px;
+html[lang="th"] body {
+  font-family: var(--font-thai), var(--font-inter), "Noto Sans Thai", sans-serif;
 }
 
-.mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: var(--teal);
-  color: white;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-}
-
-.brand { display: flex; gap: 12px; align-items: center; }
-.brand h1 { margin: 0; font-size: 1.35rem; letter-spacing: -0.03em; }
-.brand p { margin: 2px 0 0; color: var(--muted); font-size: 0.92rem; }
-
-.banner {
-  border: 1px solid var(--line);
-  background: #fff8e8;
-  border-radius: 16px;
-  padding: 12px 14px;
-  color: #6b4e16;
-  font-size: 0.92rem;
-  margin-bottom: 16px;
-}
-
-.layout {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 18px;
-  align-items: start;
-}
-
-.panel {
-  background: rgba(255, 250, 241, 0.9);
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  padding: 16px;
-}
-
-.panel h2 { margin: 0 0 8px; font-size: 1rem; }
-.hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
-
-.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.fields label, .stack label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--muted); }
-input, textarea {
-  border: 1px solid var(--line);
-  background: white;
-  border-radius: 12px;
-  padding: 8px 10px;
-  color: var(--ink);
-}
-textarea { min-height: 96px; resize: vertical; }
-
-.stats { display: grid; gap: 6px; margin: 12px 0; }
-.stats div { display: flex; justify-content: space-between; gap: 8px; font-size: 0.85rem; }
-.stats strong { font-variant-numeric: tabular-nums; }
-
-.samples { display: grid; gap: 8px; }
-.sample {
-  text-align: left;
-  border: 1px solid var(--line);
-  background: white;
-  border-radius: 16px;
-  padding: 10px 12px;
-  cursor: pointer;
-}
-.sample:hover { border-color: var(--teal); }
-.sample b { display: block; margin-bottom: 4px; }
-.sample span { color: var(--muted); font-size: 0.82rem; }
-
-.drop {
-  border: 1.5px dashed #c9bda6;
-  border-radius: 16px;
-  padding: 14px;
-  background: white;
-  margin: 8px 0 12px;
-}
-
-.verdict {
-  border-radius: 22px;
-  padding: 18px;
-  border: 1px solid var(--line);
-  background: white;
-}
-.verdict.PAY { background: var(--pay-bg); border-color: #b7e0c8; }
-.verdict.PARTIAL { background: var(--partial-bg); border-color: #f0d48a; }
-.verdict.HOLD { background: var(--hold-bg); border-color: #f3b4c4; }
-.verdict.INSUFFICIENT { background: var(--insufficient-bg); border-color: #efc7ad; }
-
-.kicker { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; }
-.verdict h2 { margin: 4px 0; font-size: 2rem; letter-spacing: -0.04em; }
-.verdict.PAY h2 { color: var(--pay); }
-.verdict.PARTIAL h2 { color: var(--partial); }
-.verdict.HOLD h2 { color: var(--hold); }
-.verdict.INSUFFICIENT h2 { color: var(--insufficient); }
-
-.explain { font-size: 1.02rem; line-height: 1.55; margin: 8px 0 0; }
-
-.table-wrap { overflow-x: auto; margin-top: 14px; }
-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
-th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: 0.75rem; }
-.num { font-variant-numeric: tabular-nums; text-align: right; }
-tr.active { background: rgba(14, 107, 98, 0.08); }
-
-.rules { display: grid; gap: 8px; margin-top: 8px; }
-.rule {
-  display: grid;
-  grid-template-columns: 132px 72px 1fr;
-  gap: 8px;
-  align-items: start;
-  font-size: 0.88rem;
-}
-.pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-.pill.pass { background: #e7f6ee; color: var(--pay); }
-.pill.fail { background: #fde8ee; color: var(--hold); }
-.pill.warn { background: #fff4d8; color: var(--partial); }
-.pill.info { background: #e7f1f0; color: var(--teal); }
-
-.evidence { display: grid; gap: 8px; }
-.evidence a { color: var(--teal); font-weight: 650; }
-.meta { color: var(--muted); font-size: 0.8rem; }
-
-.tabs { display: flex; gap: 8px; margin: 8px 0 16px; }
-.tabs button {
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: white;
-  cursor: pointer;
-  font-weight: 650;
-}
-.tabs button[data-state="active"] { background: var(--ink); color: var(--paper); }
-
-.history { display: grid; gap: 8px; }
-.history button, .audit-row {
-  width: 100%;
-  text-align: left;
-  border: 1px solid var(--line);
-  background: white;
-  border-radius: 16px;
-  padding: 12px;
-}
-
-@media (max-width: 860px) {
-  .layout { grid-template-columns: 1fr; }
-  .shell { width: min(100% - 20px, 1180px); }
-  .topbar { flex-direction: column; align-items: flex-start; }
-  .rule { grid-template-columns: 1fr; }
-  .fields { grid-template-columns: 1fr; }
-}
+button, input, select, textarea { font: inherit; }
