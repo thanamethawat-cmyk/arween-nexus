@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: arween
+      POSTGRES_PASSWORD: arween
+      POSTGRES_DB: arween
+    ports:
+      - "5432:5432"
+    volumes:
+      - arween-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arween -d arween"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    ports:
+      - "43123:43123"
+    environment:
+      DATABASE_URL: postgres://arween:arween@db:5432/arween
+      NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
+      NEBIUS_BASE_URL: ${NEBIUS_BASE_URL:-https://api.tokenfactory.nebius.com/v1}
+      NEBIUS_EXTRACT_MODEL: ${NEBIUS_EXTRACT_MODEL:-nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B}
+      NEBIUS_EXPLAIN_MODEL: ${NEBIUS_EXPLAIN_MODEL:-nvidia/Nemotron-3-Ultra-550b-a55b}
+      NEBIUS_VISION_MODEL: ${NEBIUS_VISION_MODEL:-nvidia/Nemotron-3.5-Super-VL}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  arween-pg:

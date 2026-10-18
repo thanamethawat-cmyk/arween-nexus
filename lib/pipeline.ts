@@ -1,0 +1,427 @@
+import { decide } from "./engine/decide";
+import { validateExplanation, type ExplanationDraft } from "./engine/hallucination";
+import { templateExplanation } from "./engine/templates";
+import { RULE_IDS, type InvoiceInput } from "./engine/types";
+import { extractJsonObject } from "./extract/json";
+import { parseStrictInvoice } from "./extract/strict";
+import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
+import { appConfig } from "./env";
+import {
+  findCounterpartyId,
+  findDecisionIdByIdempotency,
+  getDecision,
+  hasActiveDuplicate,
+  loadContext,
+  persistAnalysis,
+  recordAudit,
+  recordInvocations,
+  voidReplayInvoices,
+  type InvocationDraft,
+} from "./db";
+import { invoiceToText, sampleInvoices, type SampleId } from "./samples";
+import { TavilyError, retrieveCounterparty } from "./tavily/client";
+import type { DecisionView } from "./view";
+
+const MAX_BYTES = 8 * 1024 * 1024;
+
+export class AnalyzeError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly outcome: "INSUFFICIENT" | null = null,
+  ) {
+    super(message);
+  }
+}
+
+export async function analyzeRequest(options: {
+  idempotencyKey: string;
+  actor: string;
+  sample?: SampleId;
+  text?: string;
+  file?: { filename: string; mime: string; bytes: Buffer };
+}): Promise<{ decision: DecisionView; replayed: boolean }> {
+  if (!options.idempotencyKey.trim() || options.idempotencyKey.length > 200) {
+    throw new AnalyzeError("Idempotency-Key is required", 400);
+  }
+  const existingId = await findDecisionIdByIdempotency(options.idempotencyKey);
+  if (existingId) {
+    const existing = await getDecision(existingId);
+    if (existing) return { decision: existing, replayed: true };
+  }
+  const actor = options.actor.trim().slice(0, 120) || "owner";
+  let filename = "pasted.txt";
+  let text = options.text ?? "";
+  let image: { mime: string; bytes: Buffer } | undefined;
+
+  if (options.sample) {
+    text = invoiceToText(sampleInvoices[options.sample]);
+    filename = `sample-${options.sample}.txt`;
+  } else if (options.file) {
+    if (options.file.bytes.length > MAX_BYTES) throw new AnalyzeError("File is larger than 8 MB", 400);
+    filename = options.file.filename.slice(0, 200) || "upload";
+    const loaded = await fileToText(options.file);
+    text = loaded.text;
+    image = loaded.image;
+  } else if (!text.trim()) {
+    throw new AnalyzeError("Upload an invoice or choose a sample", 400);
+  }
+
+  const context = await loadContext();
+  const extracted = await extractInvoice({ text, image, filename });
+  if (!extracted.invoice) {
+    await recordInvocations(extracted.invocations);
+    await recordAudit("extract.rejected", actor, extracted.error ?? "unreadable");
+    throw new AnalyzeError(extracted.error ?? "The invoice could not be read", 422, "INSUFFICIENT");
+  }
+  const invoice = extracted.invoice;
+  if (!canStore(invoice)) {
+    await recordInvocations(extracted.invocations);
+    await recordAudit("extract.rejected", actor, "fields are not storable without guessing");
+    throw new AnalyzeError(
+      "Required invoice fields are missing or not in minor-unit integers. Nothing was guessed.",
+      422,
+      "INSUFFICIENT",
+    );
+  }
+
+  if (options.sample && invoice.supplierTaxId) {
+    await voidReplayInvoices(context.businessId, invoice.supplierTaxId, invoice.invoiceNumber);
+  }
+
+  const counterpartyId = await findCounterpartyId(context.businessId, invoice.supplierTaxId, invoice.supplierLegalName);
+  const duplicate = counterpartyId ? await hasActiveDuplicate(context.businessId, counterpartyId, invoice.invoiceNumber) : false;
+
+  let retrieval;
+  try {
+    retrieval = await retrieveCounterparty(invoice.supplierLegalName, invoice.supplierTaxId);
+  } catch (error) {
+    const message = error instanceof TavilyError ? error.message : "Counterparty search failed";
+    await recordAudit("retrieval.failed", actor, message.slice(0, 500));
+    throw new AnalyzeError(message, 502);
+  }
+
+  const result = decide({
+    invoice,
+    businessCurrency: context.baseCurrency,
+    assumptions: {
+      cashInMinor: context.cashInMinor,
+      cashOutOperatingMinor: context.cashOutOperatingMinor,
+      principalDueMinor: context.principalDueMinor,
+      interestDueMinor: context.interestDueMinor,
+      currency: context.baseCurrency,
+    },
+    debtPresent: true,
+    duplicateInvoice: duplicate,
+    taxIdFound: retrieval.taxIdFound,
+    priceCeilings: context.ceilings,
+  });
+
+  const explained = await explainResult(result, invoice);
+  const saved = await persistAnalysis({
+    idempotencyKey: options.idempotencyKey,
+    actor,
+    context,
+    invoice,
+    filename,
+    duplicateAtDecision: duplicate,
+    result,
+    explanationTh: explained.th,
+    explanationEn: explained.en,
+    explanationSource: explained.source,
+    retrieval,
+    invocations: [...extracted.invocations, explained.invocation],
+  });
+  const decision = await getDecision(saved.decisionId);
+  if (!decision) throw new AnalyzeError("The decision was saved but could not be read back", 500);
+  return { decision, replayed: saved.replayed };
+}
+
+async function fileToText(file: { filename: string; mime: string; bytes: Buffer }): Promise<{
+  text: string;
+  image?: { mime: string; bytes: Buffer };
+}> {
+  const mime = file.mime.toLowerCase();
+  const name = file.filename.toLowerCase();
+  if (mime.startsWith("text/") || mime === "application/json" || name.endsWith(".txt") || name.endsWith(".json")) {
+    return { text: file.bytes.toString("utf8") };
+  }
+  if (mime === "application/pdf" || name.endsWith(".pdf")) {
+    if (file.bytes.subarray(0, 4).toString() !== "%PDF") throw new AnalyzeError("The PDF header is not valid", 400);
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(file.bytes));
+    const extracted = await extractText(pdf, { mergePages: true });
+    const text = Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "");
+    return { text };
+  }
+  if (mime === "image/png" || mime === "image/jpeg" || mime === "image/webp" || /\.(png|jpe?g|webp)$/.test(name)) {
+    return { text: "", image: { mime: mime || "image/png", bytes: file.bytes } };
+  }
+  throw new AnalyzeError("Use a PDF, PNG, JPEG, WEBP, TXT, or JSON invoice", 400);
+}
+
+async function extractInvoice(input: {
+  text: string;
+  image?: { mime: string; bytes: Buffer };
+  filename: string;
+}): Promise<{ invoice: InvoiceInput | null; invocations: InvocationDraft[]; error?: string }> {
+  const config = appConfig();
+  if (!config.nebiusApiKey) {
+    if (input.image) {
+      return {
+        invoice: null,
+        invocations: [],
+        error: "Demo mode cannot read images. Paste labeled text, upload a text invoice, or set NEBIUS_API_KEY.",
+      };
+    }
+    const parsed = parseStrictInvoice(input.text);
+    return {
+      invoice: parsed.ok ? parsed.invoice : null,
+      invocations: [
+        {
+          purpose: "extract",
+          provider: "demo",
+          modelId: "demo-strict-parser",
+          accepted: parsed.ok,
+          latencyMs: 0,
+          error: parsed.ok ? null : parsed.reason,
+          responseExcerpt: parsed.ok ? input.text.slice(0, 1500) : null,
+        },
+      ],
+      error: parsed.ok ? undefined : "Demo mode only reads the labeled sample format or extract JSON. No amount was guessed.",
+    };
+  }
+
+  const invocations: InvocationDraft[] = [];
+  let text = input.text;
+  try {
+    if (input.image) {
+      const transcribed = await nebiusChat({
+        model: config.visionModel,
+        messages: [
+          { role: "system", content: TRANSCRIBE_SYSTEM },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Transcribe this invoice." },
+              {
+                type: "image_url",
+                image_url: { url: `data:${input.image.mime};base64,${input.image.bytes.toString("base64")}` },
+              },
+            ],
+          },
+        ],
+      });
+      text = transcribed.text;
+      invocations.push({
+        purpose: "transcribe",
+        provider: "nebius",
+        modelId: transcribed.model,
+        accepted: true,
+        latencyMs: transcribed.latencyMs,
+        error: null,
+        responseExcerpt: text.slice(0, 2000),
+      });
+    }
+    const completion = await nebiusChat({
+      model: config.extractModel,
+      json: true,
+      messages: [
+        { role: "system", content: EXTRACT_SYSTEM },
+        { role: "user", content: text.slice(0, 40_000) || "No text was extracted from the file." },
+      ],
+    });
+    const payload = extractJsonObject(completion.text);
+    const parsed = parseStrictInvoice(JSON.stringify(payload));
+    invocations.push({
+      purpose: "extract",
+      provider: "nebius",
+      modelId: completion.model,
+      accepted: parsed.ok,
+      latencyMs: completion.latencyMs,
+      error: parsed.ok ? null : parsed.reason,
+      responseExcerpt: completion.text.slice(0, 4000),
+    });
+    if (!parsed.ok) {
+      return { invoice: null, invocations, error: "The extractor returned JSON that failed the invoice schema. No amount was guessed." };
+    }
+    return { invoice: parsed.invoice, invocations };
+  } catch (error) {
+    const message = error instanceof NebiusError ? error.message : "Nemotron extraction failed";
+    invocations.push({
+      purpose: "extract",
+      provider: "nebius",
+      modelId: config.extractModel,
+      accepted: false,
+      latencyMs: null,
+      error: message.slice(0, 500),
+      responseExcerpt: null,
+    });
+    await recordInvocations(invocations);
+    await recordAudit("extract.failed", "system", message.slice(0, 500));
+    throw new AnalyzeError(message, 502);
+  }
+}
+
+async function explainResult(
+  result: ReturnType<typeof decide>,
+  invoice: InvoiceInput,
+): Promise<{ th: string; en: string; source: "model" | "template"; invocation: InvocationDraft }> {
+  const template = templateExplanation(result, invoice);
+  const config = appConfig();
+  if (!config.nebiusApiKey) {
+    return {
+      th: template.th,
+      en: template.en,
+      source: "template",
+      invocation: {
+        purpose: "explain",
+        provider: "template",
+        modelId: "deterministic-template",
+        accepted: true,
+        latencyMs: 0,
+        error: null,
+        responseExcerpt: null,
+      },
+    };
+  }
+  const payload = {
+    outcome: result.outcome,
+    winning_rule_id: result.winningRuleId,
+    partial_amount_minor: result.partialAmountMinor?.toString() ?? null,
+    fault_determination: result.faultDetermination,
+    allowed_amounts: result.allowedAmounts.map((value) => value.toString()),
+    evaluated_rules: RULE_IDS,
+    findings: result.findings,
+    scenarios: result.scenarios.map((scenario) => ({
+      kind: scenario.kind,
+      decision_payment_minor: scenario.decisionPaymentMinor.toString(),
+      cash_available_minor: scenario.cashAvailableMinor.toString(),
+      dscr_micros: scenario.dscrMicros?.toString() ?? null,
+      passes_dscr: scenario.passesDscr,
+    })),
+    invoice_total_minor: invoice.totalMinor.toString(),
+  };
+  try {
+    const completion = await nebiusChat({
+      model: config.explainModel,
+      json: true,
+      messages: [
+        { role: "system", content: EXPLAIN_SYSTEM },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+    });
+    let draft: ExplanationDraft;
+    try {
+      draft = parseExplanation(completion.text);
+    } catch (error) {
+      return {
+        th: template.th,
+        en: template.en,
+        source: "template",
+        invocation: {
+          purpose: "explain",
+          provider: "nebius",
+          modelId: completion.model,
+          accepted: false,
+          latencyMs: completion.latencyMs,
+          error: error instanceof Error ? error.message : "explanation_parse",
+          responseExcerpt: completion.text.slice(0, 4000),
+        },
+      };
+    }
+    const validation = validateExplanation(draft, RULE_IDS, result.allowedAmounts);
+    if (!validation.accepted) {
+      return {
+        th: template.th,
+        en: template.en,
+        source: "template",
+        invocation: {
+          purpose: "explain",
+          provider: "nebius",
+          modelId: completion.model,
+          accepted: false,
+          latencyMs: completion.latencyMs,
+          error: validation.reasons.slice(0, 12).join("; "),
+          responseExcerpt: completion.text.slice(0, 4000),
+        },
+      };
+    }
+    return {
+      th: draft.summaryTh,
+      en: draft.summaryEn,
+      source: "model",
+      invocation: {
+        purpose: "explain",
+        provider: "nebius",
+        modelId: completion.model,
+        accepted: true,
+        latencyMs: completion.latencyMs,
+        error: null,
+        responseExcerpt: completion.text.slice(0, 4000),
+      },
+    };
+  } catch (error) {
+    const message = error instanceof NebiusError ? error.message : "Nemotron explanation failed";
+    return {
+      th: template.th,
+      en: template.en,
+      source: "template",
+      invocation: {
+        purpose: "explain",
+        provider: "nebius",
+        modelId: config.explainModel,
+        accepted: false,
+        latencyMs: null,
+        error: message.slice(0, 500),
+        responseExcerpt: null,
+      },
+    };
+  }
+}
+
+function parseExplanation(raw: string): ExplanationDraft {
+  const data = extractJsonObject(raw) as Record<string, unknown>;
+  const summary = typeof data.summary === "string" ? data.summary : "";
+  const summaryTh = typeof data.summary_th === "string" && data.summary_th.trim() ? data.summary_th : summary;
+  const summaryEn = typeof data.summary_en === "string" && data.summary_en.trim() ? data.summary_en : summary;
+  if (!summaryTh.trim() || !summaryEn.trim()) throw new Error("explanation_incomplete");
+  const citedRuleIds = Array.isArray(data.cited_rule_ids) ? data.cited_rule_ids.map(String) : [];
+  const citedAmountsMinor = Array.isArray(data.cited_amounts_minor) ? data.cited_amounts_minor.map(asBig) : [];
+  return { summaryTh, summaryEn, citedRuleIds, citedAmountsMinor };
+}
+
+function asBig(value: unknown): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
+  if (typeof value === "string" && /^-?\d+$/.test(value)) return BigInt(value);
+  throw new Error("cited_amount_not_integer");
+}
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function canStore(invoice: InvoiceInput): boolean {
+  return (
+    (invoice.currency === "THB" || invoice.currency === "USD") &&
+    isIsoDate(invoice.issueDate) &&
+    isIsoDate(invoice.dueDate) &&
+    invoice.supplierLegalName.trim().length > 0 &&
+    invoice.supplierLegalName.trim().length <= 300 &&
+    invoice.invoiceNumber.trim().length > 0 &&
+    invoice.subtotalMinor >= 0n &&
+    invoice.vatMinor >= 0n &&
+    invoice.totalMinor >= 0n &&
+    Number.isInteger(invoice.vatRateBps) &&
+    invoice.vatRateBps >= 0 &&
+    invoice.vatRateBps <= 10000 &&
+    Number.isInteger(invoice.extractionConfidenceBps) &&
+    invoice.extractionConfidenceBps >= 0 &&
+    invoice.extractionConfidenceBps <= 10000
+  );
+}
