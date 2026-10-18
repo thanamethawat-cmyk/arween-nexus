@@ -1,189 +1,205 @@
 # ARWEEN-Nexus
 
-ARWEEN-Nexus is an evidence and liquidity guardrail for small businesses. It reads a supplier invoice, checks the counterparty in public sources, and proposes one of four outcomes before a person decides:
+ARWEEN-Nexus is an evidence and liquidity guardrail for a small business. It reads a supplier invoice, checks whether paying it would break a 1.25 debt-service coverage ratio, and proposes one of four outcomes. A person confirms or rejects that proposal. The app never moves money.
+
+**Live demo:** [https://arween-nexus.vercel.app](https://arween-nexus.vercel.app)
+
+Hosted on Vercel Hobby with Neon Free Postgres. Invoice extraction and Thai/English explanations run on [Nebius Token Factory](https://tokenfactory.nebius.com) with NVIDIA Nemotron. No login is required. The demo is free for judges through the end of the judging period.
 
 | Outcome | Meaning |
 | --- | --- |
-| `PAY` | Pay the invoice in full. Debt-service coverage stays at or above 1.25. |
+| `PAY` | Pay the invoice in full. Coverage stays at or above 1.25. |
 | `PARTIAL` | Pay only the capped amount that still clears 1.25. |
 | `HOLD` | Do not pay. A blocking rule failed, or the safe cap is not positive. |
 | `INSUFFICIENT` | Required fields are missing, the currency does not match, or extraction confidence is under 80%. |
 
-A person approves or rejects that proposal. The app never moves money. Fault is not assigned (`fault_determination = NOT_PERFORMED`).
+Fault is not assigned (`fault_determination = NOT_PERFORMED`).
 
-The behavior follows ARWEEN-NEXUS-TMS-001 (18 October 2026) for the Nebius x NVIDIA Global AI Hackathon, track Best Apps & Agents.
+Track: **Best Apps & Agents**, Nebius x NVIDIA Global AI Hackathon. Behavior follows ARWEEN-NEXUS-TMS-001 (18 October 2026).
+
+## Why
+
+A small firm in Thailand can be one paid bill away from missing a loan covenant. The invoice, the supplier’s tax id, and next period’s cash are usually checked in different places, and a model that “does the math” can invent a figure. ARWEEN separates those jobs. Nemotron reads and explains. Integer code decides. A person approves.
+
+## How we use NVIDIA Nemotron on Nebius Token Factory
+
+Token Factory is the only inference path. The app sends OpenAI-compatible chat completions to the public pool:
+
+```text
+POST https://api.tokenfactory.nebius.com/v1/chat/completions
+Authorization: Bearer ${NEBIUS_API_KEY}
+```
+
+`NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`. No GPU is rented for these calls. The model ids below were taken from the public catalog at `https://tokenfactory.nebius.com/api/public/models_info` on 18 October 2026.
+
+| Job | Model id | Why this model |
+| --- | --- | --- |
+| Invoice JSON | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | Fast, cheap extraction. Nano is text-only in the catalog. |
+| Thai and English explanation | `nvidia/Nemotron-3-Ultra-550b-a55b` | The reasoning step. It must not invent amounts. |
+| Explanation fallback | `nvidia/nemotron-3-super-120b-a12b` | Used only if Ultra errors or the hallucination check rejects the text. |
+| Photo transcription | `nvidia/Nemotron-3.5-Super-VL` | Used only for a PNG, JPEG, or WEBP. The transcript then goes to Nano. |
+
+Token Factory accelerated the workflow in a concrete way. One HTTPS endpoint and one API key serve four NVIDIA open models. Switching from Nano to Ultra is a different `model` field on the same request shape, so the extract and explain steps did not need separate serving stacks. The outcome is still computed in `lib/engine` with `bigint`. The model is not asked to calculate DSCR.
+
+### Measured live runs
+
+These rows are `model_invocations` from live Token Factory calls on 18 October 2026. Every stored Nemotron call in that set was `accepted = true`. Nemotron 3 Super was not called, because Ultra passed the hallucination check. No image was sent, so Super VL was not called. `TAVILY_API_KEY` was unset, so each counterparty check is `not_verified` and `RULE-WEB-001` does not block.
+
+The run that matches the spec, after the extractor was told to copy `quantity_millis` unchanged:
+
+| Case | Outcome | Winning rule | Nano extract | Ultra explain | Tokens (prompt + completion) |
+| --- | --- | --- | --- | --- | --- |
+| A · INV-1044 Harbor Supplies · 37,450.00 THB | `PAY` | `RULE-PAY-001` | 2,627 ms · 665 + 704 | 3,289 ms · 1,134 + 998 | 3,501 |
+| B · INV-2208 Harbor Supplies · 60,000.00 THB | `PARTIAL` 45,000.00 THB | `RULE-DSCR-001` | 2,011 ms · 634 + 584 | 2,467 ms · 1,173 + 903 | 3,294 |
+| C · INV-9001 Vanta Commerce · 60,000.00 THB | `HOLD` | `RULE-INV-001` | 2,216 ms · 635 + 671 | 2,032 ms · 1,077 + 565 | 2,948 |
+
+Case A full payment leaves DSCR `1.3255`. Case B full payment drops DSCR to `1.1000`, so the proposal is the 45,000.00 THB cap, which leaves DSCR `1.2500`. Case C is a duplicate of the seeded anchor invoice. A separate live invoice with confidence at 79% returned `INSUFFICIENT` on `RULE-DATA-001` (Nano 2,519 ms, 631 + 611; Ultra 1,832 ms, 1,057 + 529).
+
+Across all 22 stored calls that day, Nano latency was 2.0–5.3 s and Ultra latency was 1.8–4.2 s. The same case B extract was 2.0 s, later 5.3 s, then 3.9 s. Completion length moved with it. The first case B, before the quantity prompt fix, was a correct `HOLD` on `RULE-INV-002` because Nano had rewritten a quantity. Details are in [docs/FEEDBACK.md](docs/FEEDBACK.md).
+
+List prices on the catalog that day: Nano `$0.06 / $0.24` per million input/output tokens, Super and Super VL `$0.30 / $0.90`, Ultra `$1 / $3`. A text review like case A is about `$0.005`.
+
+## What it does
+
+1. The reviewer drops a PDF, image, text, or JSON invoice, or clicks sample A, B, or C. Companies and amounts in the samples are fictional.
+2. Nano returns invoice JSON. A strict parser accepts only labeled integers. Nothing is guessed.
+3. Confidence below 80% (8,000 bps), a missing required field, or a currency mismatch stops at `INSUFFICIENT`.
+4. Seven rules run in order. DSCR uses integer satang and a 1.25 threshold (`1_250_000` micros).
+5. If `TAVILY_API_KEY` is set, Tavily is queried with the supplier legal name and tax id only. If it is empty, the check is stored as `not verified` and does not block.
+6. Ultra writes the Thai and English explanation from the computed result. The hallucination validator rejects new digits and unknown rule ids. A failure retries on Super, then falls back to a deterministic template.
+7. The screen shows three scenarios (hold, pay in full, partial max), the winning rule, and the evidence. **Approve** or **Reject** records the person’s choice. **Hold** leaves the proposal open. No transfer is created.
+
+## Architecture
+
+```mermaid
+flowchart TD
+  person[Reviewer]
+  app[ARWEEN-Nexus]
+  limits[Upload size and rate limits]
+  nano[Nemotron Nano on Token Factory]
+  rules[Integer rules and DSCR]
+  ultra[Nemotron Ultra on Token Factory]
+  super[Nemotron Super fallback]
+  validator[Hallucination validator]
+  db[(PostgreSQL)]
+  tavily[Tavily if the key is set]
+  decision[Proposed PAY PARTIAL HOLD or INSUFFICIENT]
+
+  person --> app
+  app --> limits
+  limits --> nano
+  nano --> rules
+  rules --> db
+  rules --> tavily
+  rules --> ultra
+  ultra --> validator
+  validator -->|rejected or HTTP error| super
+  validator -->|accepted| decision
+  super --> decision
+  decision --> db
+  person -->|confirm or reject| db
+```
+
+Money, tax, and DSCR live in `lib/engine` and use `bigint` only. `decide()` writes the outcome. Model text does not.
+
+## Test cases A, B, and C
+
+Shared cash assumptions, in satang: cash in `25,000,000`, operating cash out `8,000,000`, principal due `8,000,000`, interest due `2,000,000`. Debt service is `10,000,000`. The safe payment cap at DSCR 1.25 is `4,500,000` (45,000.00 THB).
+
+| Case | Invoice | What you should see |
+| --- | --- | --- |
+| A | Harbor Supplies `INV-1044`, 37,450.00 THB | `PAY` on `RULE-PAY-001`. DSCR after full payment `1.3255`. |
+| B | Harbor Supplies `INV-2208`, 60,000.00 THB | `PARTIAL` on `RULE-DSCR-001`. Pay up to 45,000.00 THB. Full payment would leave DSCR `1.1000`. |
+| C | Vanta Commerce `INV-9001`, 60,000.00 THB | `HOLD` on `RULE-INV-001`, because the seeded anchor invoice has the same number. Line math also fails `RULE-INV-002`. |
+
+On the demo, open [the app](https://arween-nexus.vercel.app), leave the language on **EN**, and click **Run sample A**, then B, then C. Each click calls Token Factory and takes a few seconds. Then open **History & Audit** and select the row. The trail shows `Nemotron Nano` and `Nemotron 3 Ultra` with latency and token counts. Switch **TH**. The explanation is already in Thai. That toggle does not call the model again.
+
+`npm test` locks the same three cases, the confidence gate, a non-positive cap, the price warning, the hallucination validator, and the sample parser. Those tests do not call Token Factory.
+
+## Safety design
+
+- **Integer money.** Amounts are satang (`bigint`). DSCR micros are `cash_available * 1_000_000 / debt_service`. The 1.25 test is `cash_available * 100 >= debt_service * 125`.
+- **Confidence gate.** Below 80%, the outcome is `INSUFFICIENT` on `RULE-DATA-001`. A live 79% invoice did this.
+- **No guessed fields.** The parser rejects JSON that is not labeled integers. A failed extract does not invent a total.
+- **Hallucination validator.** The explanation may cite only evaluated rule ids and amounts that already exist on the result, including the 1.25 threshold. A rejected explanation is stored with `accepted = false` and replaced.
+- **Human approval.** Status stays `proposed` until confirm or reject. The screen says no money moves. Hold does not create a new status.
+- **Audit log.** Every review stores the model id, latency, token counts, the retrieval provider, and the human action.
+- **Demo limits.** Defaults: 8 MB upload, 6 analyze requests per IP per minute, 30 Nemotron calls per IP per UTC day, 80 calls per day for everyone, and `$0.30` of estimated Token Factory spend per UTC day. A request that would cross the day’s cap returns HTTP 429 and does not call Token Factory. Confirm, reject, and cash edits are rate-limited separately and do not call a model.
+
+`gps_verified` is always null and is not used. Escrow, milestone payout, integrity snapshots, and network membership are not implemented.
+
+## Tavily
+
+Tavily is optional. The query is only the supplier’s legal name and tax id (`lib/tavily/query.ts`). Totals and cash figures are not sent.
+
+- Key set: `POST https://api.tavily.com/search`. `tax_id_found` is true only when a returned title, snippet, or URL contains that tax id. A completed search that misses the id fails `RULE-WEB-001` and the outcome is `HOLD`.
+- Key empty: provider `not_verified`, no evidence rows, and the rule is a warning. The screen says not verified. It does not invent a registry hit, and it does not pretend the search failed.
+
+The recorded runs used the empty-key path. A live Tavily call is not claimed.
 
 ## Setup
 
 Requirements: Node.js 22 and PostgreSQL 16.
 
+### Local
+
 ```bash
 cp .env.example .env.local
-# edit .env.local if your database URL differs
+# set DATABASE_URL if Postgres is not on localhost
 npm install
 npm test
 npm run dev
 ```
 
-Open [http://127.0.0.1:43123](http://127.0.0.1:43123).
+Open [http://127.0.0.1:43123](http://127.0.0.1:43123). Leave both API keys empty for the labeled-text demo, which does not call Nemotron. Set `NEBIUS_API_KEY` to use Token Factory.
 
-The default database URL is `postgres://arween:arween@127.0.0.1:5432/arween`. On first boot the app creates the schema, seeds Baan Suan Studio with the spec cash and debt figures, and inserts an anchor invoice `INV-9001` for fictional Vanta Commerce so case C can detect a duplicate.
+On an empty database the process creates the schema and seeds Baan Suan Studio, the spec cash and debt figures, the Cartons price ceiling (300.00 THB), and anchor invoice `INV-9001` for fictional Vanta Commerce. Sample decisions are not pre-inserted. Clicking A, B, or C creates them.
 
-Docker Compose starts Postgres and the app together. The image is a production Next.js build. On process start the app creates the schema and, when the database is empty, seeds Baan Suan Studio, the spec cash and debt figures, the Cartons price ceiling, and the anchor invoice `INV-9001`. Cases A, B, and C stay one-click actions so a live key still calls Nemotron. They are not inserted as finished decisions.
+### Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-`GET /api/health` checks Postgres and returns `{ "ok": true }`. The container health check calls that route.
+Postgres and the production Next.js image start together. The app listens on port `43123`. `GET /api/health` checks Postgres. The container health check calls that route.
 
-Leave `NEBIUS_API_KEY` and `TAVILY_API_KEY` empty to run the scripted demo. With keys set, the same buttons call the live APIs. For a hosted Postgres such as Neon, put `sslmode=require` in `DATABASE_URL`.
+### Vercel and Neon
 
-Nothing in this repository has been deployed, and no hosting or Token Factory credit has been spent.
+The public demo uses this layout. Inference stays on Token Factory either way.
 
-## What works in this build
+1. Create a Neon Free project and copy the pooled connection string. It must include `sslmode=require`.
+2. Import the GitHub repository into a Vercel Hobby project. Framework preset: Next.js.
+3. Set the environment variables below for Production. Do not commit `NEBIUS_API_KEY` or `DATABASE_URL`.
+4. Deploy. The first request runs the schema and seed.
+5. Open `/api/health`. A healthy process returns `{ "ok": true }` plus the public demo limits.
 
-- Integer DSCR engine (`dscr-integer-v1`) and all seven rules, stored in PostgreSQL.
-- Spec cases through the API in demo mode: A `PAY` with DSCR `1.3255`, B `PARTIAL` at `4500000` minor units (45,000.00 THB), C `HOLD` on `RULE-INV-001` with the four blocking failures recorded.
-- Upload or paste of labeled text, JSON, and PDF text. Images are transcribed only when a Nebius key is present.
-- Three-scenario table, colour verdict, Thai/English toggle, approve/reject, history, and audit log.
-- `ModelInvocation` and `RetrievalQuery` rows for every completed review.
-- Hallucination check on the explanation. A failed check is stored with `accepted = false`. The explainer retries on `nvidia/nemotron-3-super-120b-a12b`. If that check also fails, the screen shows template text.
-- One-click fictional samples. Re-running A or B voids the previous non-anchor copy so the button stays repeatable. The Vanta anchor invoice is never voided.
-
-## What still needs keys or a deploy
-
-- `NEBIUS_API_KEY` is required before any request is sent to Token Factory. Without it, extraction uses a strict labeled parser and the explanation is the deterministic template. The UI says so.
-- `TAVILY_API_KEY` is required before any request is sent to Tavily. Without it, the counterparty check is labeled `not verified`, no search result is stored, and `RULE-WEB-001` does not block. Set the key and the same legal-name plus tax-id query calls Tavily.
-- With a live Tavily key, a tax ID that does not appear in the results fails `RULE-WEB-001` and the outcome is `HOLD`. That path does not invent a match.
-- The app is deploy-ready and has not been deployed. `docker compose up --build` builds the production image and starts it with Postgres. Point `NEBIUS_BASE_URL` at a dedicated Token Factory endpoint when you create one.
-- `gps_verified` exists on `invoices` and is always left null. It does not affect the decision.
-
-## Architecture
-
-```text
-upload / sample
-  -> file check and Idempotency-Key
-  -> extract JSON
-       demo: strict labeled parser
-       live: PDF/text to Nemotron Nano; images transcribed by Nemotron 3.5 Super VL, then Nano
-  -> schema check, confidence gate, minor units
-  -> current DebtFacility and CashflowAssumption
-  -> three ForecastScenario rows (held, paid_full, partial_max)
-  -> counterparty search
-       no Tavily key: not verified, no invented hit, name + tax id query stored only
-       live: Tavily, name + tax id only
-  -> RULE-DATA-001 … RULE-PAY-001
-  -> explain
-       live: Nemotron 3 Ultra, then the hallucination validator
-       otherwise: template from the computed result
-  -> PaymentDecision status=proposed, AuditEvent
-  -> a person confirms or rejects (no payment)
-```
-
-Money, tax, and DSCR are computed in `lib/engine` with `bigint` only. Model prompts tell the extractor to copy printed amounts and tell the explainer not to calculate. The outcome stored on `payment_decisions` comes from `decide()`, never from model text.
-
-## How Nebius Token Factory and Nemotron are used
-
-Catalog checked on 18 October 2026 against `https://tokenfactory.nebius.com/api/public/models_info`.
-
-| Role | Env | Default model id |
-| --- | --- | --- |
-| Invoice JSON extraction | `NEBIUS_EXTRACT_MODEL` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` |
-| Thai and English explanation | `NEBIUS_EXPLAIN_MODEL` | `nvidia/Nemotron-3-Ultra-550b-a55b` |
-| Explanation fallback | `NEBIUS_EXPLAIN_FALLBACK_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
-| Image transcription only | `NEBIUS_VISION_MODEL` | `nvidia/Nemotron-3.5-Super-VL` |
-
-Nano is text-only in the catalog, so a photo is transcribed by the vision model and the transcript is then sent to Nano for the JSON. Ultra writes the Thai and English explanation. If that call errors, or the hallucination validator rejects it, the same payload is sent to Nemotron 3 Super.
-
-Calls are OpenAI-compatible:
-
-```text
-POST ${NEBIUS_BASE_URL}/chat/completions
-Authorization: Bearer ${NEBIUS_API_KEY}
-```
-
-Default base URL: `https://api.tokenfactory.nebius.com/v1/`. That is the public Token Factory serverless endpoint. Docs: [https://docs.tokenfactory.nebius.com](https://docs.tokenfactory.nebius.com).
-
-Each call is inserted into `model_invocations` with purpose `extract`, `transcribe`, or `explain`, the model id, latency, and `accepted`. Extraction JSON that fails the schema is `accepted = false` and the review stops as `INSUFFICIENT` without invented amounts. An explanation is `accepted = false` when it cites a rule id that was not evaluated or a number that is not in the computed result (minor units, 2-decimal currency amounts of those units, or a DSCR ratio whose micros value is in the result, including the 1.25 threshold). The stored prose is then the template.
-
-To use a dedicated Nebius serverless endpoint instead of the public pool, create the endpoint in Token Factory for the same model and set `NEBIUS_BASE_URL` to the OpenAI-compatible base URL shown for that endpoint. Dedicated endpoint setup: [https://docs.tokenfactory.nebius.com/ai-models-inference/dedicated-endpoints/quickstart](https://docs.tokenfactory.nebius.com/ai-models-inference/dedicated-endpoints/quickstart).
-
-## How Tavily is used
-
-`POST https://api.tavily.com/search` with `Authorization: Bearer ${TAVILY_API_KEY}`.
-
-The query is built only from the supplier legal name and tax id (`lib/tavily/query.ts`). Invoice totals, cash figures, and other business fields are not included. `tax_id_found` is true only when a returned title, snippet, or URL contains that tax id. Source URLs are shown on the review. The query string is stored on `retrieval_queries` and shown in the evidence section.
-
-If `TAVILY_API_KEY` is empty, the provider is `not_verified`, `tax_id_found` stays false, and the evidence list is empty. The screen says not verified. `RULE-WEB-001` is recorded as a warning so the missing key does not pretend the tax ID was found and does not pretend a search failed. Integer DSCR math and the other six rules are unchanged. A completed Tavily search that misses the tax ID still blocks.
-
-## Rules and integer math
-
-PostgreSQL table `rules` holds the seven rule ids. Every review writes seven `rule_findings`. The winning rule is the first blocking failure in this order:
-
-1. `RULE-DATA-001` — missing fields, currency mismatch, or confidence below 8000 bps → `INSUFFICIENT`
-2. `RULE-INV-001` — same invoice number for the same counterparty, not void → `HOLD`
-3. `RULE-INV-002` — line totals, VAT, or grand total disagree with the integer formulas → `HOLD`
-4. `RULE-WEB-001` — tax id not found in a completed search → `HOLD`. A search that was not run is `not verified` and does not block.
-5. `RULE-DSCR-001` — full payment fails 1.25 while debt is due. If `max_payment_minor > 0` the outcome is `PARTIAL` and `partial_amount_minor` equals that cap. Otherwise `HOLD`.
-6. `RULE-PRICE-001` — unit price above a reference ceiling. Warn only. It does not change the outcome. The seed ceiling for `Cartons` is 300.00 THB.
-7. `RULE-PAY-001` — no blocking rule failed → `PAY`
-
-Shared spec inputs, in minor units (satang):
-
-| Input | Minor | THB |
-| --- | --- | --- |
-| Cash in | 25000000 | 250,000.00 |
-| Operating cash out | 8000000 | 80,000.00 |
-| Principal due | 8000000 | 80,000.00 |
-| Interest due | 2000000 | 20,000.00 |
-| Debt service | 10000000 | 100,000.00 |
-| Minimum cash for DSCR 1.25 | 12500000 | 125,000.00 |
-| Safe payment cap | 4500000 | 45,000.00 |
-
-`passes_dscr` is `debt_service > 0 AND cash_available * 100 >= debt_service * 125`. `dscr_micros` divides `cash_available * 1000000` by `debt_service`. 1.25 is `1250000`. Case A full payment leaves `13255000` and DSCR `1325500` (`1.3255`).
-
-The 50/50 kickoff split from the spec is implemented and unit-tested. It is not used in the decision, because escrow disbursement is deferred.
-
-## Tests
-
-```bash
-npm test
-```
-
-`tests/spec-cases.test.ts` locks cases A, B, and C, the confidence gate, a non-positive cap, the price warn, the hallucination validator, the sample parser, and the retrieval query contents.
+`maxDuration` on the analyze route is 300 seconds, which fits Vercel Hobby. A text review in the measured runs finished in well under that.
 
 ## Environment
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `NEBIUS_API_KEY` | Token Factory key. Empty = demo extraction and template explanation |
-| `NEBIUS_BASE_URL` | OpenAI-compatible base, no trailing path beyond `/v1` |
-| `NEBIUS_EXTRACT_MODEL` | Nano model id |
-| `NEBIUS_EXPLAIN_MODEL` | Ultra model id for Thai and English explanations |
-| `NEBIUS_EXPLAIN_FALLBACK_MODEL` | Super model id used when Ultra fails the call or the validator |
-| `NEBIUS_VISION_MODEL` | Vision model id for images |
-| `TAVILY_API_KEY` | Tavily key. Empty = not verified, no invented result |
-| `DEMO_MAX_UPLOAD_BYTES` | Upload cap. Default `8388608` (8 MB). Requests with a larger `Content-Length` are rejected before the file is stored |
-| `DEMO_MAX_PASTE_CHARS` | Pasted invoice text cap. Default `200000` |
-| `DEMO_RATE_LIMIT_PER_MINUTE` | Analyze requests per IP per minute. Default `6` |
-| `DEMO_MUTATION_RATE_LIMIT_PER_MINUTE` | Confirm, reject, assumption, and ledger-reset requests per IP per minute. Default `30` |
-| `DEMO_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per UTC day, all visitors. Default `80` |
-| `DEMO_IP_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per IP per UTC day. Default `30` |
-| `DEMO_DAILY_USD_MICROS` | Estimated Token Factory spend per UTC day, in millionths of a dollar. Default `300000` ($0.30). A call is refused when today's spend plus that call's estimate would pass the cap |
-| `PG_POOL_MAX` | Postgres connections per process. Default `3` |
+| `DATABASE_URL` | PostgreSQL connection string. Required in production. |
+| `NEBIUS_API_KEY` | Token Factory key. Empty = labeled parser and template text. Create one at [tokenfactory.nebius.com](https://tokenfactory.nebius.com). |
+| `NEBIUS_BASE_URL` | OpenAI-compatible base. Default `https://api.tokenfactory.nebius.com/v1`. |
+| `NEBIUS_EXTRACT_MODEL` | Nano model id. |
+| `NEBIUS_EXPLAIN_MODEL` | Ultra model id. |
+| `NEBIUS_EXPLAIN_FALLBACK_MODEL` | Super model id. |
+| `NEBIUS_VISION_MODEL` | Super VL model id for images. |
+| `TAVILY_API_KEY` | Tavily key. Empty = not verified, no invented result. |
+| `DEMO_MAX_UPLOAD_BYTES` | Upload cap. Default `8388608` (8 MB). |
+| `DEMO_MAX_PASTE_CHARS` | Pasted text cap. Default `200000`. |
+| `DEMO_RATE_LIMIT_PER_MINUTE` | Analyze requests per IP per minute. Default `6`. |
+| `DEMO_MUTATION_RATE_LIMIT_PER_MINUTE` | Confirm, reject, assumption, and reset requests per IP per minute. Default `30`. |
+| `DEMO_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per UTC day. Default `80`. |
+| `DEMO_IP_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per IP per UTC day. Default `30`. |
+| `DEMO_DAILY_USD_MICROS` | Estimated Token Factory spend per UTC day, in millionths of a dollar. Default `300000` (`$0.30`). |
+| `PG_POOL_MAX` | Postgres connections per process. Default `3`. |
 
-## Public demo limits
+## Built during the submission period
 
-The $25 Token Factory balance is the inference budget. List prices checked on 18 October 2026: Nano `$0.06 / $0.24` per million input/output tokens, Super and Super VL `$0.30 / $0.90`, Ultra `$1 / $3`. A normal text review (Nano extract plus Ultra explanation) is about `$0.005`. The default of 80 Nemotron calls per UTC day is about 40 of those reviews, or about `$0.20` on a full day. Hitting that call cap every day from 18 October through 16 December 2026 is about `$12`. The separate `$0.30` spend cap stops the day sooner when a call is large. The estimate includes the prompt size, so a large image is refused when that one request would cross the day's cap. The global caps do not trust `X-Forwarded-For`. Put the app behind a proxy that overwrites that header so the per-IP limit sees the client address.
-
-These limits do not change integer DSCR math, the hallucination validator, or audit writes. A blocked review returns HTTP 429 and does not call Token Factory.
-
-## Deferred
-
-Phase 2 names from the spec are not implemented: `EscrowVaultLock`, `MilestoneDisbursement`, `IntegritySnapshot`, and `NetworkMembership`. `gps_verified` is deferred. Human confirmation does not create a transfer.
+The hackathon submission period started on 26 August 2026. Before that, only the concept and spec document existed. All of the application code in this repository was written during the submission period.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. Copyright 2026 THANAMETHAWAT SRIPITAK. See [LICENSE](LICENSE).
