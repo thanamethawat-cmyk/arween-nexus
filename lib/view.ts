@@ -69,6 +69,8 @@ export type DecisionView = {
     accepted: boolean;
     latencyMs: number | null;
     error: string | null;
+    promptTokens: number | null;
+    completionTokens: number | null;
   }>;
 };
 

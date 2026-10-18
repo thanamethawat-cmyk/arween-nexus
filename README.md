@@ -44,14 +44,14 @@ Leave `NEBIUS_API_KEY` and `TAVILY_API_KEY` empty to run the scripted demo. With
 - Upload or paste of labeled text, JSON, and PDF text. Images are transcribed only when a Nebius key is present.
 - Three-scenario table, colour verdict, Thai/English toggle, approve/reject, history, and audit log.
 - `ModelInvocation` and `RetrievalQuery` rows for every completed review.
-- Hallucination check on the explanation. A failed check is stored with `accepted = false` and the screen shows template text instead.
+- Hallucination check on the explanation. A failed check is stored with `accepted = false`. The explainer retries on `nvidia/nemotron-3-super-120b-a12b`. If that check also fails, the screen shows template text.
 - One-click fictional samples. Re-running A or B voids the previous non-anchor copy so the button stays repeatable. The Vanta anchor invoice is never voided.
 
 ## What still needs keys or a deploy
 
 - `NEBIUS_API_KEY` is required before any request is sent to Token Factory. Without it, extraction uses a strict labeled parser and the explanation is the deterministic template. The UI says so.
-- `TAVILY_API_KEY` is required before any request is sent to Tavily. Without it, Harbor Supplies resolves to a fictional registry card at `/demo-evidence/0105560000001`. Vanta Commerce does not. Those cards are labeled as fixtures.
-- With a live Tavily key, fictional tax IDs are expected to miss, so samples A and B become `HOLD` under `RULE-WEB-001`. That is the rule, not a fallback. Use demo mode to replay the spec outcomes.
+- `TAVILY_API_KEY` is required before any request is sent to Tavily. Without it, the counterparty check is labeled `not verified`, no search result is stored, and `RULE-WEB-001` does not block. Set the key and the same legal-name plus tax-id query calls Tavily.
+- With a live Tavily key, a tax ID that does not appear in the results fails `RULE-WEB-001` and the outcome is `HOLD`. That path does not invent a match.
 - This environment was not deployed to Nebius. `docker compose up --build` is the deploy path. Point `NEBIUS_BASE_URL` at a dedicated Token Factory endpoint when you create one.
 - `gps_verified` exists on `invoices` and is always left null. It does not affect the decision.
 
@@ -67,7 +67,7 @@ upload / sample
   -> current DebtFacility and CashflowAssumption
   -> three ForecastScenario rows (held, paid_full, partial_max)
   -> counterparty search
-       demo: fixture card, name + tax id only
+       no Tavily key: not verified, no invented hit, name + tax id query stored only
        live: Tavily, name + tax id only
   -> RULE-DATA-001 … RULE-PAY-001
   -> explain
@@ -87,9 +87,10 @@ Catalog checked on 18 October 2026 against `https://tokenfactory.nebius.com/api/
 | --- | --- | --- |
 | Invoice JSON extraction | `NEBIUS_EXTRACT_MODEL` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` |
 | Thai and English explanation | `NEBIUS_EXPLAIN_MODEL` | `nvidia/Nemotron-3-Ultra-550b-a55b` |
+| Explanation fallback | `NEBIUS_EXPLAIN_FALLBACK_MODEL` | `nvidia/nemotron-3-super-120b-a12b` |
 | Image transcription only | `NEBIUS_VISION_MODEL` | `nvidia/Nemotron-3.5-Super-VL` |
 
-Nano is text-only in the catalog, so a photo is transcribed by the vision model and the transcript is then sent to Nano for the JSON. A cheaper explanation model that is also on the catalog is `nvidia/nemotron-3-super-120b-a12b` (Nemotron 3 Super). Set `NEBIUS_EXPLAIN_MODEL` to that id if you want Super instead of Ultra.
+Nano is text-only in the catalog, so a photo is transcribed by the vision model and the transcript is then sent to Nano for the JSON. Ultra writes the Thai and English explanation. If that call errors, or the hallucination validator rejects it, the same payload is sent to Nemotron 3 Super.
 
 Calls are OpenAI-compatible:
 
@@ -110,6 +111,8 @@ To use a dedicated Nebius serverless endpoint instead of the public pool, create
 
 The query is built only from the supplier legal name and tax id (`lib/tavily/query.ts`). Invoice totals, cash figures, and other business fields are not included. `tax_id_found` is true only when a returned title, snippet, or URL contains that tax id. Source URLs are shown on the review. The query string is stored on `retrieval_queries` and shown in the evidence section.
 
+If `TAVILY_API_KEY` is empty, the provider is `not_verified`, `tax_id_found` stays false, and the evidence list is empty. The screen says not verified. `RULE-WEB-001` is recorded as a warning so the missing key does not pretend the tax ID was found and does not pretend a search failed. Integer DSCR math and the other six rules are unchanged. A completed Tavily search that misses the tax ID still blocks.
+
 ## Rules and integer math
 
 PostgreSQL table `rules` holds the seven rule ids. Every review writes seven `rule_findings`. The winning rule is the first blocking failure in this order:
@@ -117,7 +120,7 @@ PostgreSQL table `rules` holds the seven rule ids. Every review writes seven `ru
 1. `RULE-DATA-001` — missing fields, currency mismatch, or confidence below 8000 bps → `INSUFFICIENT`
 2. `RULE-INV-001` — same invoice number for the same counterparty, not void → `HOLD`
 3. `RULE-INV-002` — line totals, VAT, or grand total disagree with the integer formulas → `HOLD`
-4. `RULE-WEB-001` — tax id not found in the search → `HOLD`
+4. `RULE-WEB-001` — tax id not found in a completed search → `HOLD`. A search that was not run is `not verified` and does not block.
 5. `RULE-DSCR-001` — full payment fails 1.25 while debt is due. If `max_payment_minor > 0` the outcome is `PARTIAL` and `partial_amount_minor` equals that cap. Otherwise `HOLD`.
 6. `RULE-PRICE-001` — unit price above a reference ceiling. Warn only. It does not change the outcome. The seed ceiling for `Cartons` is 300.00 THB.
 7. `RULE-PAY-001` — no blocking rule failed → `PAY`
@@ -154,9 +157,10 @@ npm test
 | `NEBIUS_API_KEY` | Token Factory key. Empty = demo extraction and template explanation |
 | `NEBIUS_BASE_URL` | OpenAI-compatible base, no trailing path beyond `/v1` |
 | `NEBIUS_EXTRACT_MODEL` | Nano model id |
-| `NEBIUS_EXPLAIN_MODEL` | Ultra or Super model id |
+| `NEBIUS_EXPLAIN_MODEL` | Ultra model id for Thai and English explanations |
+| `NEBIUS_EXPLAIN_FALLBACK_MODEL` | Super model id used when Ultra fails the call or the validator |
 | `NEBIUS_VISION_MODEL` | Vision model id for images |
-| `TAVILY_API_KEY` | Tavily key. Empty = fictional evidence cards |
+| `TAVILY_API_KEY` | Tavily key. Empty = not verified, no invented result |
 
 ## Deferred
 

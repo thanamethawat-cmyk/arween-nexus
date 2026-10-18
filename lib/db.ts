@@ -249,6 +249,8 @@ async function migrate(): Promise<void> {
     for (const statement of SCHEMA.split(/;\s*(?:\n|$)/).map((part) => part.trim()).filter(Boolean)) {
       await client.query(statement);
     }
+    await client.query("ALTER TABLE model_invocations ADD COLUMN IF NOT EXISTS prompt_tokens integer");
+    await client.query("ALTER TABLE model_invocations ADD COLUMN IF NOT EXISTS completion_tokens integer");
     for (const [ordinal, ruleId, severity, summary] of RULE_ROWS) {
       await client.query(
         `INSERT INTO rules (ordinal, rule_id, severity, summary)
@@ -439,6 +441,8 @@ export type InvocationDraft = {
   latencyMs: number | null;
   error: string | null;
   responseExcerpt: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
 };
 
 export type AnalysisWrite = {
@@ -642,8 +646,9 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
     for (const invocation of write.invocations) {
       await client.query(
         `INSERT INTO model_invocations (
-           invocation_id, decision_id, purpose, provider, model_id, accepted, latency_ms, error, response_excerpt
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+           invocation_id, decision_id, purpose, provider, model_id, accepted, latency_ms, error, response_excerpt,
+           prompt_tokens, completion_tokens
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           id("mdl_"),
           decisionId,
@@ -654,6 +659,8 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
           invocation.latencyMs,
           invocation.error,
           invocation.responseExcerpt,
+          invocation.promptTokens,
+          invocation.completionTokens,
         ],
       );
     }
@@ -822,8 +829,10 @@ export async function getDecision(decisionId: string): Promise<DecisionView | nu
       accepted: boolean;
       latency_ms: number | null;
       error: string | null;
+      prompt_tokens: number | null;
+      completion_tokens: number | null;
     }>(
-      `SELECT purpose, provider, model_id, accepted, latency_ms, error
+      `SELECT purpose, provider, model_id, accepted, latency_ms, error, prompt_tokens, completion_tokens
        FROM model_invocations WHERE decision_id = $1 ORDER BY created_at`,
       [decisionId],
     ),
@@ -916,6 +925,8 @@ export async function getDecision(decisionId: string): Promise<DecisionView | nu
       accepted: model.accepted,
       latencyMs: model.latency_ms,
       error: model.error,
+      promptTokens: model.prompt_tokens,
+      completionTokens: model.completion_tokens,
     })),
   };
 }
@@ -1011,8 +1022,9 @@ export async function recordInvocations(invocations: InvocationDraft[]): Promise
   for (const invocation of invocations) {
     await pool.query(
       `INSERT INTO model_invocations (
-         invocation_id, decision_id, purpose, provider, model_id, accepted, latency_ms, error, response_excerpt
-       ) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)`,
+         invocation_id, decision_id, purpose, provider, model_id, accepted, latency_ms, error, response_excerpt,
+         prompt_tokens, completion_tokens
+       ) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         id("mdl_"),
         invocation.purpose,
@@ -1022,6 +1034,8 @@ export async function recordInvocations(invocations: InvocationDraft[]): Promise
         invocation.latencyMs,
         invocation.error,
         invocation.responseExcerpt,
+        invocation.promptTokens,
+        invocation.completionTokens,
       ],
     );
   }

@@ -64,6 +64,24 @@ describe("case A — PAY", () => {
   });
 });
 
+describe("counterparty check without Tavily", () => {
+  it("keeps PAY when the search was not run and no tax hit is invented", () => {
+    const result = decide(inputFor("A", { taxIdFound: false, taxIdStatus: "not_verified" }));
+    expect(result.outcome).toBe("PAY");
+    expect(result.winningRuleId).toBe("RULE-PAY-001");
+    const web = result.findings.find((row) => row.ruleId === "RULE-WEB-001");
+    expect(web?.status).toBe("fail");
+    expect(web?.severity).toBe("warn");
+    expect(web?.detailKey).toBe("not_verified");
+  });
+
+  it("still blocks on a completed search that missed the tax ID", () => {
+    const result = decide(inputFor("A", { taxIdFound: false, taxIdStatus: "missing" }));
+    expect(result.outcome).toBe("HOLD");
+    expect(result.winningRuleId).toBe("RULE-WEB-001");
+  });
+});
+
 describe("case B — PARTIAL", () => {
   const result = decide(inputFor("B"));
   const paid = result.scenarios.find((scenario) => scenario.kind === "paid_full");

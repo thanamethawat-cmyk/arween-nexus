@@ -101,10 +101,13 @@ export function decide(input: DecideInput): DecisionResult {
       : finding("RULE-INV-002", "fail", "block", "invoice_math_bad", { reason: math.reason }),
   );
 
+  const webStatus = input.taxIdStatus ?? (input.taxIdFound ? "found" : "missing");
   findings.push(
-    input.taxIdFound
-      ? finding("RULE-WEB-001", "pass", "block", "tax_found", { taxId: invoice.supplierTaxId ?? "" })
-      : finding("RULE-WEB-001", "fail", "block", "tax_missing", { taxId: invoice.supplierTaxId ?? "" }),
+    webStatus === "not_verified"
+      ? finding("RULE-WEB-001", "fail", "warn", "not_verified", { taxId: invoice.supplierTaxId ?? "" })
+      : webStatus === "found"
+        ? finding("RULE-WEB-001", "pass", "block", "tax_found", { taxId: invoice.supplierTaxId ?? "" })
+        : finding("RULE-WEB-001", "fail", "block", "tax_missing", { taxId: invoice.supplierTaxId ?? "" }),
   );
 
   const debt = assumptions

@@ -1,5 +1,5 @@
 import { appConfig } from "../env";
-import { demoRetrieval, type EvidenceHit } from "./fixtures";
+import { unverifiedRetrieval, type EvidenceHit } from "./fixtures";
 import { buildRetrievalQuery, textContainsTaxId } from "./query";
 
 export class TavilyError extends Error {
@@ -12,10 +12,12 @@ export class TavilyError extends Error {
 }
 
 export type RetrievalResult = {
-  provider: "tavily" | "demo";
+  provider: "tavily" | "not_verified";
   demoMode: boolean;
   query: string;
   taxIdFound: boolean;
+  /** False only when a tax ID was present and Tavily was not called. */
+  verified: boolean;
   evidence: EvidenceHit[];
 };
 
@@ -24,16 +26,24 @@ export async function retrieveCounterparty(legalName: string, taxId: string | nu
   const config = appConfig();
   if (!taxId) {
     return {
-      provider: config.tavilyApiKey ? "tavily" : "demo",
+      provider: config.tavilyApiKey ? "tavily" : "not_verified",
       demoMode: config.tavilyApiKey.length === 0,
       query,
       taxIdFound: false,
+      verified: true,
       evidence: [],
     };
   }
   if (!config.tavilyApiKey) {
-    const demo = demoRetrieval(taxId);
-    return { provider: "demo", demoMode: true, query, taxIdFound: demo.found, evidence: demo.evidence };
+    const unverified = unverifiedRetrieval();
+    return {
+      provider: "not_verified",
+      demoMode: true,
+      query,
+      taxIdFound: unverified.found,
+      verified: false,
+      evidence: unverified.evidence,
+    };
   }
 
   const response = await fetch("https://api.tavily.com/search", {
@@ -77,6 +87,7 @@ export async function retrieveCounterparty(legalName: string, taxId: string | nu
     demoMode: false,
     query,
     taxIdFound: evidence.some((hit) => hit.containsTaxId),
+    verified: true,
     evidence,
   };
 }

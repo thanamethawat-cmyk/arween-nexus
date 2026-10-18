@@ -57,6 +57,8 @@ export type DecideInput = {
   debtPresent: boolean;
   duplicateInvoice: boolean;
   taxIdFound: boolean;
+  /** Set only by retrieval. Omitted inputs keep the taxIdFound pass/fail path. */
+  taxIdStatus?: "found" | "missing" | "not_verified";
   priceCeilings: PriceCeiling[];
 };
 

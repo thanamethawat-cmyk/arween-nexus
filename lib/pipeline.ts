@@ -114,6 +114,7 @@ export async function analyzeRequest(options: {
     debtPresent: true,
     duplicateInvoice: duplicate,
     taxIdFound: retrieval.taxIdFound,
+    taxIdStatus: retrieval.verified ? (retrieval.taxIdFound ? "found" : "missing") : "not_verified",
     priceCeilings: context.ceilings,
   });
 
@@ -130,7 +131,7 @@ export async function analyzeRequest(options: {
     explanationEn: explained.en,
     explanationSource: explained.source,
     retrieval,
-    invocations: [...extracted.invocations, explained.invocation],
+    invocations: [...extracted.invocations, ...explained.invocations],
   });
   const decision = await getDecision(saved.decisionId);
   if (!decision) throw new AnalyzeError("The decision was saved but could not be read back", 500);
@@ -186,6 +187,8 @@ async function extractInvoice(input: {
           latencyMs: 0,
           error: parsed.ok ? null : parsed.reason,
           responseExcerpt: parsed.ok ? input.text.slice(0, 1500) : null,
+          promptTokens: null,
+          completionTokens: null,
         },
       ],
       error: parsed.ok ? undefined : "Demo mode only reads the labeled sample format or extract JSON. No amount was guessed.",
@@ -221,31 +224,46 @@ async function extractInvoice(input: {
         latencyMs: transcribed.latencyMs,
         error: null,
         responseExcerpt: text.slice(0, 2000),
+        promptTokens: transcribed.usage.promptTokens,
+        completionTokens: transcribed.usage.completionTokens,
       });
     }
-    const completion = await nebiusChat({
-      model: config.extractModel,
-      json: true,
-      messages: [
-        { role: "system", content: EXTRACT_SYSTEM },
-        { role: "user", content: text.slice(0, 40_000) || "No text was extracted from the file." },
-      ],
-    });
-    const payload = extractJsonObject(completion.text);
-    const parsed = parseStrictInvoice(JSON.stringify(payload));
-    invocations.push({
-      purpose: "extract",
-      provider: "nebius",
-      modelId: completion.model,
-      accepted: parsed.ok,
-      latencyMs: completion.latencyMs,
-      error: parsed.ok ? null : parsed.reason,
-      responseExcerpt: completion.text.slice(0, 4000),
-    });
-    if (!parsed.ok) {
-      return { invoice: null, invocations, error: "The extractor returned JSON that failed the invoice schema. No amount was guessed." };
+    const userText = text.slice(0, 40_000) || "No text was extracted from the file.";
+    let parsed: ReturnType<typeof parseStrictInvoice> = { ok: false, reason: "not_called", missing: [] };
+    let drift: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const correction =
+        attempt === 0
+          ? "Each LINE is line_no | description | quantity_millis | unit_price_minor | line_total_minor. Copy those integers unchanged. Do not multiply quantity_millis."
+          : drift
+            ? `${drift} Copy every printed integer again. Do not multiply or divide.`
+            : `The previous JSON failed schema check (${parsed.ok ? "unknown" : parsed.reason}). Copy the printed integers exactly. Do not guess.`;
+      const completion = await nebiusChat({
+        model: config.extractModel,
+        json: true,
+        messages: [
+          { role: "system", content: EXTRACT_SYSTEM },
+          { role: "user", content: `${correction}\n\n${userText}` },
+        ],
+      });
+      const payload = extractJsonObject(completion.text);
+      parsed = parseStrictInvoice(JSON.stringify(payload));
+      drift = parsed.ok ? labeledIntegerDrift(userText, parsed.invoice) : null;
+      invocations.push({
+        purpose: "extract",
+        provider: "nebius",
+        modelId: completion.model,
+        accepted: parsed.ok && !drift,
+        latencyMs: completion.latencyMs,
+        error: parsed.ok ? drift : parsed.reason,
+        responseExcerpt: completion.text.slice(0, 4000),
+        promptTokens: completion.usage.promptTokens,
+        completionTokens: completion.usage.completionTokens,
+      });
+      if (parsed.ok && !drift) return { invoice: parsed.invoice, invocations };
     }
-    return { invoice: parsed.invoice, invocations };
+    if (parsed.ok) return { invoice: parsed.invoice, invocations };
+    return { invoice: null, invocations, error: "The extractor returned JSON that failed the invoice schema. No amount was guessed." };
   } catch (error) {
     const message = error instanceof NebiusError ? error.message : "Nemotron extraction failed";
     invocations.push({
@@ -256,6 +274,8 @@ async function extractInvoice(input: {
       latencyMs: null,
       error: message.slice(0, 500),
       responseExcerpt: null,
+      promptTokens: null,
+      completionTokens: null,
     });
     await recordInvocations(invocations);
     await recordAudit("extract.failed", "system", message.slice(0, 500));
@@ -266,7 +286,7 @@ async function extractInvoice(input: {
 async function explainResult(
   result: ReturnType<typeof decide>,
   invoice: InvoiceInput,
-): Promise<{ th: string; en: string; source: "model" | "template"; invocation: InvocationDraft }> {
+): Promise<{ th: string; en: string; source: "model" | "template"; invocations: InvocationDraft[] }> {
   const template = templateExplanation(result, invoice);
   const config = appConfig();
   if (!config.nebiusApiKey) {
@@ -274,15 +294,19 @@ async function explainResult(
       th: template.th,
       en: template.en,
       source: "template",
-      invocation: {
-        purpose: "explain",
-        provider: "template",
-        modelId: "deterministic-template",
-        accepted: true,
-        latencyMs: 0,
-        error: null,
-        responseExcerpt: null,
-      },
+      invocations: [
+        {
+          purpose: "explain",
+          provider: "template",
+          modelId: "deterministic-template",
+          accepted: true,
+          latencyMs: 0,
+          error: null,
+          responseExcerpt: null,
+          promptTokens: null,
+          completionTokens: null,
+        },
+      ],
     };
   }
   const payload = {
@@ -292,7 +316,13 @@ async function explainResult(
     fault_determination: result.faultDetermination,
     allowed_amounts: result.allowedAmounts.map((value) => value.toString()),
     evaluated_rules: RULE_IDS,
-    findings: result.findings,
+    template_th: template.th,
+    template_en: template.en,
+    findings: result.findings.map((finding) => ({
+      rule_id: finding.ruleId,
+      status: finding.status,
+      detail_key: finding.detailKey,
+    })),
     scenarios: result.scenarios.map((scenario) => ({
       kind: scenario.kind,
       decision_payment_minor: scenario.decisionPaymentMinor.toString(),
@@ -300,15 +330,51 @@ async function explainResult(
       dscr_micros: scenario.dscrMicros?.toString() ?? null,
       passes_dscr: scenario.passesDscr,
     })),
-    invoice_total_minor: invoice.totalMinor.toString(),
   };
+  const exact = {
+    summary_th: template.th,
+    summary_en: template.en,
+    cited_rule_ids: [result.winningRuleId],
+    cited_amounts_minor: [],
+  };
+  const models = [config.explainModel];
+  if (config.explainFallbackModel && config.explainFallbackModel !== config.explainModel) {
+    models.push(config.explainFallbackModel);
+  }
+  const invocations: InvocationDraft[] = [];
+  let rejection = "";
+  for (const [index, model] of models.entries()) {
+    const user =
+      index === 0
+        ? JSON.stringify(payload)
+        : JSON.stringify({
+            ...payload,
+            previous_rejection: rejection,
+            required_json: exact,
+            instruction: "Return required_json exactly. Do not add digits, dates, or rule codes.",
+          });
+    const attempt = await attemptExplanation(model, user, result.allowedAmounts);
+    invocations.push(attempt.invocation);
+    if (attempt.draft && attempt.invocation.accepted) {
+      return { th: attempt.draft.summaryTh, en: attempt.draft.summaryEn, source: "model", invocations };
+    }
+    rejection = attempt.invocation.error ?? "explanation_rejected";
+  }
+  return { th: template.th, en: template.en, source: "template", invocations };
+}
+
+async function attemptExplanation(
+  model: string,
+  user: string,
+  allowedAmounts: readonly bigint[],
+): Promise<{ draft?: ExplanationDraft; invocation: InvocationDraft }> {
   try {
     const completion = await nebiusChat({
-      model: config.explainModel,
+      model,
       json: true,
       messages: [
         { role: "system", content: EXPLAIN_SYSTEM },
-        { role: "user", content: JSON.stringify(payload) },
+        { role: "user", content: user },
       ],
     });
     let draft: ExplanationDraft;
@@ -316,9 +382,6 @@ async function explainResult(
       draft = parseExplanation(completion.text);
     } catch (error) {
       return {
-        th: template.th,
-        en: template.en,
-        source: "template",
         invocation: {
           purpose: "explain",
           provider: "nebius",
@@ -327,57 +390,69 @@ async function explainResult(
           latencyMs: completion.latencyMs,
           error: error instanceof Error ? error.message : "explanation_parse",
           responseExcerpt: completion.text.slice(0, 4000),
+          promptTokens: completion.usage.promptTokens,
+          completionTokens: completion.usage.completionTokens,
         },
       };
     }
-    const validation = validateExplanation(draft, RULE_IDS, result.allowedAmounts);
-    if (!validation.accepted) {
-      return {
-        th: template.th,
-        en: template.en,
-        source: "template",
-        invocation: {
-          purpose: "explain",
-          provider: "nebius",
-          modelId: completion.model,
-          accepted: false,
-          latencyMs: completion.latencyMs,
-          error: validation.reasons.slice(0, 12).join("; "),
-          responseExcerpt: completion.text.slice(0, 4000),
-        },
-      };
-    }
+    const validation = validateExplanation(draft, RULE_IDS, allowedAmounts);
     return {
-      th: draft.summaryTh,
-      en: draft.summaryEn,
-      source: "model",
+      draft,
       invocation: {
         purpose: "explain",
         provider: "nebius",
         modelId: completion.model,
-        accepted: true,
+        accepted: validation.accepted,
         latencyMs: completion.latencyMs,
-        error: null,
+        error: validation.accepted ? null : validation.reasons.slice(0, 12).join("; "),
         responseExcerpt: completion.text.slice(0, 4000),
+        promptTokens: completion.usage.promptTokens,
+        completionTokens: completion.usage.completionTokens,
       },
     };
   } catch (error) {
     const message = error instanceof NebiusError ? error.message : "Nemotron explanation failed";
     return {
-      th: template.th,
-      en: template.en,
-      source: "template",
       invocation: {
         purpose: "explain",
         provider: "nebius",
-        modelId: config.explainModel,
+        modelId: model,
         accepted: false,
         latencyMs: null,
         error: message.slice(0, 500),
         responseExcerpt: null,
+        promptTokens: null,
+        completionTokens: null,
       },
     };
   }
+}
+
+function labeledIntegerDrift(source: string, invoice: InvoiceInput): string | null {
+  const printed: string[][] = [];
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("LINE:")) continue;
+    const parts = line.slice("LINE:".length).split("|").map((part) => part.trim());
+    if (parts.length === 5) printed.push(parts);
+  }
+  if (printed.length === 0 || printed.length !== invoice.lines.length) return null;
+  for (let index = 0; index < printed.length; index += 1) {
+    const parts = printed[index] ?? [];
+    const line = invoice.lines[index];
+    if (!line) return null;
+    const expected: Array<[string, string, string]> = [
+      ["quantity_millis", parts[2] ?? "", line.quantityMillis.toString()],
+      ["unit_price_minor", parts[3] ?? "", line.unitPriceMinor.toString()],
+      ["line_total_minor", parts[4] ?? "", line.lineTotalMinor.toString()],
+    ];
+    for (const [field, printedValue, copied] of expected) {
+      if (printedValue !== copied) {
+        return `LINE ${index + 1} ${field} is printed as ${printedValue}. The JSON returned ${copied}.`;
+      }
+    }
+  }
+  return null;
 }
 
 function parseExplanation(raw: string): ExplanationDraft {

@@ -407,7 +407,7 @@ function DecisionCard({
           <div key={finding.ruleId} className="rule">
             <strong>{finding.ruleId}</strong>
             <span className={`pill ${finding.status === "pass" ? "pass" : finding.severity === "warn" ? "warn" : finding.severity === "info" ? "info" : "fail"}`}>
-              {finding.status}
+              {finding.detailKey === "not_verified" ? t(lang, "notVerified") : finding.status}
             </span>
             <span>{findingText(lang, finding.detailKey, finding.params)}</span>
           </div>
@@ -416,12 +416,14 @@ function DecisionCard({
 
       <h3>{t(lang, "evidence")}</h3>
       <p className="meta">
-        {decision.retrieval?.provider} · {decision.retrieval?.taxIdFound ? t(lang, "taxHit") : t(lang, "taxMiss")} · {decision.retrieval?.taxId || "—"}
+        {decision.retrieval?.provider} · {decision.retrieval?.provider === "not_verified" ? t(lang, "taxNotVerified") : decision.retrieval?.taxIdFound ? t(lang, "taxHit") : t(lang, "taxMiss")} · {decision.retrieval?.taxId || "—"}
         <br />
         {decision.retrieval?.query}
       </p>
       <div className="evidence">
-        {decision.evidence.length === 0 && <p className="hint">{t(lang, "taxMiss")}</p>}
+        {decision.evidence.length === 0 && (
+          <p className="hint">{decision.retrieval?.provider === "not_verified" ? t(lang, "taxNotVerified") : t(lang, "taxMiss")}</p>
+        )}
         {decision.evidence.map((hit) => (
           <article key={hit.url}>
             <a href={hit.url} target="_blank" rel="noreferrer">{hit.title}</a>
@@ -437,7 +439,14 @@ function DecisionCard({
           <div key={`${model.purpose}-${index}`} className="rule">
             <strong>{model.purpose}</strong>
             <span className={`pill ${model.accepted ? "pass" : "fail"}`}>{model.accepted ? "accepted" : "rejected"}</span>
-            <span>{model.provider} · {model.modelId}{model.error ? ` · ${model.error}` : ""}</span>
+            <span>
+              {model.provider} · {model.modelId}
+              {model.latencyMs !== null ? ` · ${model.latencyMs} ms` : ""}
+              {model.promptTokens !== null || model.completionTokens !== null
+                ? ` · ${model.promptTokens ?? 0}+${model.completionTokens ?? 0} tokens`
+                : ""}
+              {model.error ? ` · ${model.error}` : ""}
+            </span>
           </div>
         ))}
       </div>
