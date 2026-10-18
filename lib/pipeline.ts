@@ -21,8 +21,8 @@ import {
 import { invoiceToText, sampleInvoices, type SampleId } from "./samples";
 import { TavilyError, retrieveCounterparty } from "./tavily/client";
 import type { DecisionView } from "./view";
-
-const MAX_BYTES = 8 * 1024 * 1024;
+import { demoLimits, uploadTooBigMessage } from "./demo-limits";
+import { GuardError } from "./guard";
 
 export class AnalyzeError extends Error {
   constructor(
@@ -57,8 +57,10 @@ export async function analyzeRequest(options: {
   if (options.sample) {
     text = invoiceToText(sampleInvoices[options.sample]);
     filename = `sample-${options.sample}.txt`;
+  } else if ((options.text ?? "").length > demoLimits().maxPasteChars) {
+    throw new AnalyzeError("Pasted text is too long", 400);
   } else if (options.file) {
-    if (options.file.bytes.length > MAX_BYTES) throw new AnalyzeError("File is larger than 8 MB", 400);
+    if (options.file.bytes.length > demoLimits().maxUploadBytes) throw new AnalyzeError(uploadTooBigMessage(), 400);
     filename = options.file.filename.slice(0, 200) || "upload";
     const loaded = await fileToText(options.file);
     text = loaded.text;
@@ -265,6 +267,10 @@ async function extractInvoice(input: {
     if (parsed.ok) return { invoice: parsed.invoice, invocations };
     return { invoice: null, invocations, error: "The extractor returned JSON that failed the invoice schema. No amount was guessed." };
   } catch (error) {
+    if (error instanceof GuardError) {
+      await recordInvocations(invocations);
+      throw error;
+    }
     const message = error instanceof NebiusError ? error.message : "Nemotron extraction failed";
     invocations.push({
       purpose: "extract",
@@ -343,22 +349,37 @@ async function explainResult(
   }
   const invocations: InvocationDraft[] = [];
   let rejection = "";
-  for (const [index, model] of models.entries()) {
-    const user =
-      index === 0
-        ? JSON.stringify(payload)
-        : JSON.stringify({
-            ...payload,
-            previous_rejection: rejection,
-            required_json: exact,
-            instruction: "Return required_json exactly. Do not add digits, dates, or rule codes.",
-          });
-    const attempt = await attemptExplanation(model, user, result.allowedAmounts);
-    invocations.push(attempt.invocation);
-    if (attempt.draft && attempt.invocation.accepted) {
-      return { th: attempt.draft.summaryTh, en: attempt.draft.summaryEn, source: "model", invocations };
+  try {
+    for (const [index, model] of models.entries()) {
+      const user =
+        index === 0
+          ? JSON.stringify(payload)
+          : JSON.stringify({
+              ...payload,
+              previous_rejection: rejection,
+              required_json: exact,
+              instruction: "Return required_json exactly. Do not add digits, dates, or rule codes.",
+            });
+      const attempt = await attemptExplanation(model, user, result.allowedAmounts);
+      invocations.push(attempt.invocation);
+      if (attempt.draft && attempt.invocation.accepted) {
+        return { th: attempt.draft.summaryTh, en: attempt.draft.summaryEn, source: "model", invocations };
+      }
+      rejection = attempt.invocation.error ?? "explanation_rejected";
     }
-    rejection = attempt.invocation.error ?? "explanation_rejected";
+  } catch (error) {
+    if (!(error instanceof GuardError)) throw error;
+    invocations.push({
+      purpose: "explain",
+      provider: "nebius",
+      modelId: config.explainModel,
+      accepted: false,
+      latencyMs: null,
+      error: error.message.slice(0, 500),
+      responseExcerpt: null,
+      promptTokens: null,
+      completionTokens: null,
+    });
   }
   return { th: template.th, en: template.en, source: "template", invocations };
 }
@@ -411,6 +432,7 @@ async function attemptExplanation(
       },
     };
   } catch (error) {
+    if (error instanceof GuardError) throw error;
     const message = error instanceof NebiusError ? error.message : "Nemotron explanation failed";
     return {
       invocation: {

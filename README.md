@@ -29,13 +29,17 @@ Open [http://127.0.0.1:43123](http://127.0.0.1:43123).
 
 The default database URL is `postgres://arween:arween@127.0.0.1:5432/arween`. On first boot the app creates the schema, seeds Baan Suan Studio with the spec cash and debt figures, and inserts an anchor invoice `INV-9001` for fictional Vanta Commerce so case C can detect a duplicate.
 
-Docker Compose starts Postgres and the app together:
+Docker Compose starts Postgres and the app together. The image is a production Next.js build. On process start the app creates the schema and, when the database is empty, seeds Baan Suan Studio, the spec cash and debt figures, the Cartons price ceiling, and the anchor invoice `INV-9001`. Cases A, B, and C stay one-click actions so a live key still calls Nemotron. They are not inserted as finished decisions.
 
 ```bash
 docker compose up --build
 ```
 
-Leave `NEBIUS_API_KEY` and `TAVILY_API_KEY` empty to run the scripted demo. With keys set, the same buttons call the live APIs.
+`GET /api/health` checks Postgres and returns `{ "ok": true }`. The container health check calls that route.
+
+Leave `NEBIUS_API_KEY` and `TAVILY_API_KEY` empty to run the scripted demo. With keys set, the same buttons call the live APIs. For a hosted Postgres such as Neon, put `sslmode=require` in `DATABASE_URL`.
+
+Nothing in this repository has been deployed, and no hosting or Token Factory credit has been spent.
 
 ## What works in this build
 
@@ -52,7 +56,7 @@ Leave `NEBIUS_API_KEY` and `TAVILY_API_KEY` empty to run the scripted demo. With
 - `NEBIUS_API_KEY` is required before any request is sent to Token Factory. Without it, extraction uses a strict labeled parser and the explanation is the deterministic template. The UI says so.
 - `TAVILY_API_KEY` is required before any request is sent to Tavily. Without it, the counterparty check is labeled `not verified`, no search result is stored, and `RULE-WEB-001` does not block. Set the key and the same legal-name plus tax-id query calls Tavily.
 - With a live Tavily key, a tax ID that does not appear in the results fails `RULE-WEB-001` and the outcome is `HOLD`. That path does not invent a match.
-- This environment was not deployed to Nebius. `docker compose up --build` is the deploy path. Point `NEBIUS_BASE_URL` at a dedicated Token Factory endpoint when you create one.
+- The app is deploy-ready and has not been deployed. `docker compose up --build` builds the production image and starts it with Postgres. Point `NEBIUS_BASE_URL` at a dedicated Token Factory endpoint when you create one.
 - `gps_verified` exists on `invoices` and is always left null. It does not affect the decision.
 
 ## Architecture
@@ -161,6 +165,20 @@ npm test
 | `NEBIUS_EXPLAIN_FALLBACK_MODEL` | Super model id used when Ultra fails the call or the validator |
 | `NEBIUS_VISION_MODEL` | Vision model id for images |
 | `TAVILY_API_KEY` | Tavily key. Empty = not verified, no invented result |
+| `DEMO_MAX_UPLOAD_BYTES` | Upload cap. Default `8388608` (8 MB). Requests with a larger `Content-Length` are rejected before the file is stored |
+| `DEMO_MAX_PASTE_CHARS` | Pasted invoice text cap. Default `200000` |
+| `DEMO_RATE_LIMIT_PER_MINUTE` | Analyze requests per IP per minute. Default `6` |
+| `DEMO_MUTATION_RATE_LIMIT_PER_MINUTE` | Confirm, reject, assumption, and ledger-reset requests per IP per minute. Default `30` |
+| `DEMO_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per UTC day, all visitors. Default `80` |
+| `DEMO_IP_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per IP per UTC day. Default `30` |
+| `DEMO_DAILY_USD_MICROS` | Estimated Token Factory spend per UTC day, in millionths of a dollar. Default `300000` ($0.30). A call is refused when today's spend plus that call's estimate would pass the cap |
+| `PG_POOL_MAX` | Postgres connections per process. Default `3` |
+
+## Public demo limits
+
+The $25 Token Factory balance is the inference budget. List prices checked on 18 October 2026: Nano `$0.06 / $0.24` per million input/output tokens, Super and Super VL `$0.30 / $0.90`, Ultra `$1 / $3`. A normal text review (Nano extract plus Ultra explanation) is about `$0.005`. The default of 80 Nemotron calls per UTC day is about 40 of those reviews, or about `$0.20` on a full day. Hitting that call cap every day from 18 October through 16 December 2026 is about `$12`. The separate `$0.30` spend cap stops the day sooner when a call is large. The estimate includes the prompt size, so a large image is refused when that one request would cross the day's cap. The global caps do not trust `X-Forwarded-For`. Put the app behind a proxy that overwrites that header so the per-IP limit sees the client address.
+
+These limits do not change integer DSCR math, the hallucination validator, or audit writes. A blocked review returns HTTP 429 and does not call Token Factory.
 
 ## Deferred
 

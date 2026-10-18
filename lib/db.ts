@@ -8,9 +8,13 @@ import type { BootstrapView, DecisionListItem, DecisionView } from "./view";
 
 const globalForPg = globalThis as unknown as { arweenPool?: Pool };
 
-function getPool(): Pool {
+export function getPool(): Pool {
   if (!globalForPg.arweenPool) {
-    globalForPg.arweenPool = new Pool({ connectionString: appConfig().databaseUrl });
+    const max = Number(process.env.PG_POOL_MAX ?? "3");
+    globalForPg.arweenPool = new Pool({
+      connectionString: appConfig().databaseUrl,
+      max: Number.isInteger(max) && max > 0 ? max : 3,
+    });
   }
   return globalForPg.arweenPool;
 }
@@ -212,6 +216,26 @@ CREATE TABLE IF NOT EXISTS audit_events (
   detail text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS demo_rate_buckets (
+  ip text NOT NULL,
+  route text NOT NULL,
+  window_start timestamptz NOT NULL,
+  hits integer NOT NULL,
+  PRIMARY KEY (ip, route, window_start)
+);
+
+CREATE TABLE IF NOT EXISTS demo_nebius_spend (
+  spend_id text PRIMARY KEY,
+  ip text NOT NULL,
+  model_id text NOT NULL,
+  cost_micros integer NOT NULL,
+  prompt_tokens integer,
+  completion_tokens integer,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS demo_nebius_spend_created_idx ON demo_nebius_spend (created_at);
 `;
 
 const RULE_ROWS: Array<[number, string, string, string]> = [

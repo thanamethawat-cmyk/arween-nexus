@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { updateAssumptions } from "@/lib/db";
+import { GuardError, clientIp, enforceRateLimit } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function PUT(request: Request) {
+  try {
+    await enforceRateLimit(clientIp(request), "mutate");
+  } catch (error) {
+    if (error instanceof GuardError) return NextResponse.json({ error: error.message }, { status: error.status });
+    throw error;
+  }
   const body = (await request.json()) as Record<string, unknown>;
   const cashInMinor = asMinor(body.cashInMinor);
   const cashOutOperatingMinor = asMinor(body.cashOutOperatingMinor);

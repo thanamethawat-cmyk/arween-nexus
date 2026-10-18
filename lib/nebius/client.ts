@@ -1,4 +1,5 @@
 import { appConfig } from "../env";
+import { reserveNemotronCall, settleNemotronCall } from "../guard";
 
 export type ChatContent =
   | string
@@ -35,6 +36,7 @@ export async function nebiusChat(options: {
   if (!config.nebiusApiKey) {
     throw new NebiusError("NEBIUS_API_KEY is not set", 0);
   }
+  const spendId = await reserveNemotronCall(options.model, options.messages);
   const started = Date.now();
   const body: Record<string, unknown> = {
     model: options.model,
@@ -63,7 +65,13 @@ export async function nebiusChat(options: {
   }
   const text = readContent(parsed);
   if (!text) throw new NebiusError("Token Factory returned an empty completion", 502);
-  return { text, latencyMs, model: options.model, usage: readUsage(parsed) };
+  const usage = readUsage(parsed);
+  try {
+    await settleNemotronCall(spendId, options.model, usage);
+  } catch (error) {
+    console.error("Nemotron spend settle failed", error);
+  }
+  return { text, latencyMs, model: options.model, usage };
 }
 
 async function postChat(

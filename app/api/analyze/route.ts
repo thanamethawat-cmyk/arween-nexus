@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { contentTooLarge, uploadTooBigMessage } from "@/lib/demo-limits";
+import { GuardError, clientIp, enforceRateLimit } from "@/lib/guard";
 import { AnalyzeError, analyzeRequest } from "@/lib/pipeline";
+import { requestContext } from "@/lib/request-context";
 import type { SampleId } from "@/lib/samples";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +11,26 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
-    const idempotencyKey = request.headers.get("idempotency-key") ?? "";
+    if (contentTooLarge(request)) {
+      return NextResponse.json({ error: uploadTooBigMessage() }, { status: 413 });
+    }
+    const ip = clientIp(request);
+    await enforceRateLimit(ip, "analyze");
+    return await requestContext.run({ ip }, () => handleAnalyze(request));
+  } catch (error) {
+    if (error instanceof GuardError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof AnalyzeError) {
+      return NextResponse.json({ error: error.message, outcome: error.outcome }, { status: error.status });
+    }
+    console.error(error);
+    return NextResponse.json({ error: "The review could not be completed" }, { status: 500 });
+  }
+}
+
+async function handleAnalyze(request: Request) {
+  const idempotencyKey = request.headers.get("idempotency-key") ?? "";
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
@@ -36,11 +58,4 @@ export async function POST(request: Request) {
       text: typeof body.text === "string" ? body.text : undefined,
     });
     return NextResponse.json(result);
-  } catch (error) {
-    if (error instanceof AnalyzeError) {
-      return NextResponse.json({ error: error.message, outcome: error.outcome }, { status: error.status });
-    }
-    console.error(error);
-    return NextResponse.json({ error: "The review could not be completed" }, { status: 500 });
-  }
 }

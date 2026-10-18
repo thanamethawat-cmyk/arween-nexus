@@ -28,9 +28,21 @@ services:
       NEBIUS_EXPLAIN_FALLBACK_MODEL: ${NEBIUS_EXPLAIN_FALLBACK_MODEL:-nvidia/nemotron-3-super-120b-a12b}
       NEBIUS_VISION_MODEL: ${NEBIUS_VISION_MODEL:-nvidia/Nemotron-3.5-Super-VL}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DEMO_MAX_UPLOAD_BYTES: ${DEMO_MAX_UPLOAD_BYTES:-8388608}
+      DEMO_RATE_LIMIT_PER_MINUTE: ${DEMO_RATE_LIMIT_PER_MINUTE:-6}
+      DEMO_DAILY_NEMOTRON_CALLS: ${DEMO_DAILY_NEMOTRON_CALLS:-80}
+      DEMO_IP_DAILY_NEMOTRON_CALLS: ${DEMO_IP_DAILY_NEMOTRON_CALLS:-30}
+      DEMO_DAILY_USD_MICROS: ${DEMO_DAILY_USD_MICROS:-300000}
+      PG_POOL_MAX: ${PG_POOL_MAX:-3}
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:43123/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
 volumes:
   arween-pg:
