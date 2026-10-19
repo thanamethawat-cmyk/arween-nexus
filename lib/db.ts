@@ -14,9 +14,35 @@ export function getPool(): Pool {
     globalForPg.arweenPool = new Pool({
       connectionString: appConfig().databaseUrl,
       max: Number.isInteger(max) && max > 0 ? max : 3,
+      connectionTimeoutMillis: 12_000,
+      idleTimeoutMillis: 20_000,
     });
   }
   return globalForPg.arweenPool;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Retry a connection or a cheap query while Neon wakes from scale-to-zero. */
+export async function withDbRetry<T>(work: () => Promise<T>, attempts = 3): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await work();
+    } catch (error) {
+      last = error;
+      if (attempt === attempts - 1) break;
+      await sleep(500 * 2 ** attempt);
+    }
+  }
+  throw last;
+}
+
+export function publicDbError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "database unavailable";
+  return message.replace(/postgres(?:ql)?:\/\/\S+/gi, "postgres://[redacted]").slice(0, 300);
 }
 
 const SCHEMA = `
@@ -250,9 +276,17 @@ const RULE_ROWS: Array<[number, string, string, string]> = [
 
 let ready: Promise<void> | null = null;
 
+/** Schema plus one round trip. Used by /api/health. */
 export async function pingDb(): Promise<void> {
-  await ensureDb();
-  await getPool().query("SELECT 1");
+  await withDbRetry(async () => {
+    await ensureDb();
+    await getPool().query("SELECT 1");
+  });
+}
+
+/** One round trip and no model call. Used by the daily keepalive. */
+export async function selectOne(): Promise<void> {
+  await withDbRetry(() => getPool().query("SELECT 1"));
 }
 
 export function ensureDb(): Promise<void> {
@@ -339,7 +373,11 @@ async function migrate(): Promise<void> {
     }
     await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // The connection already failed. Surface the original error.
+    }
     throw error;
   } finally {
     client.release();

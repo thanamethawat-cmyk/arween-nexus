@@ -1,16 +1,43 @@
-import { demoLimits, estimateCostMicros, budgetDecision } from "./demo-limits";
+import { NextResponse } from "next/server";
+import { demoLimits, estimateCostMicros, budgetDecision, quotaMessage, retryHint, type QuotaCode } from "./demo-limits";
 import { ensureDb, getPool } from "./db";
 import { id } from "./ids";
 import { currentIp } from "./request-context";
 import type { ChatMessage } from "./nebius/client";
 
 export class GuardError extends Error {
+  readonly status = 429;
+
   constructor(
+    readonly code: QuotaCode,
     message: string,
-    readonly status: number,
+    readonly retryAfterSeconds: number,
+    readonly resetsAt: string,
   ) {
     super(message);
+    this.name = "GuardError";
   }
+}
+
+export function quotaBody(error: GuardError) {
+  return {
+    error: error.message,
+    code: error.code,
+    retryAfterSeconds: error.retryAfterSeconds,
+    resetsAt: error.resetsAt,
+  };
+}
+
+export function guardResponse(error: GuardError) {
+  return NextResponse.json(quotaBody(error), {
+    status: error.status,
+    headers: { "Retry-After": String(error.retryAfterSeconds) },
+  });
+}
+
+function raiseQuota(code: QuotaCode, kind: "minute" | "utc-day"): never {
+  const hint = retryHint(kind);
+  throw new GuardError(code, quotaMessage(code), hint.retryAfterSeconds, hint.resetsAt);
 }
 
 export function clientIp(request: Request): string {
@@ -35,9 +62,7 @@ export async function enforceRateLimit(ip: string, route: "analyze" | "mutate"):
     [ip, route],
   );
   const hits = result.rows[0]?.hits ?? 1;
-  if (hits > limit) {
-    throw new GuardError("Too many requests from this network. Wait a minute and try again.", 429);
-  }
+  if (hits > limit) raiseQuota("RATE_LIMIT_PER_IP", "minute");
 }
 
 export function estimatePromptTokens(messages: ChatMessage[]): number {
@@ -81,7 +106,10 @@ export async function reserveNemotronCall(model: string, messages: ChatMessage[]
       holdMicros: hold,
       limits,
     });
-    if (!decision.ok) throw new GuardError(decision.message, 429);
+    if (!decision.ok) {
+      const hint = retryHint("utc-day");
+      throw new GuardError(decision.code, decision.message, hint.retryAfterSeconds, hint.resetsAt);
+    }
     const spendId = id("nem_");
     await client.query(
       `INSERT INTO demo_nebius_spend (spend_id, ip, model_id, cost_micros) VALUES ($1, $2, $3, $4)`,

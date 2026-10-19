@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { demoLimits } from "@/lib/demo-limits";
-import { pingDb } from "@/lib/db";
+import { pingDb, publicDbError } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function GET() {
   try {
@@ -11,6 +12,8 @@ export async function GET() {
     const limits = demoLimits();
     return NextResponse.json({
       ok: true,
+      db: "select 1",
+      nemotron: false,
       limits: {
         maxUploadBytes: limits.maxUploadBytes,
         analyzePerMinute: limits.analyzePerMinute,
@@ -19,7 +22,6 @@ export async function GET() {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "unhealthy";
-    return NextResponse.json({ ok: false, error: message }, { status: 503 });
+    return NextResponse.json({ ok: false, error: publicDbError(error) }, { status: 503 });
   }
 }

@@ -150,6 +150,10 @@ const copy = {
     due: "ครบกำหนด",
     modelsLive: "โมเดล",
     saved: "บันทึกแล้ว",
+    quotaMinute: "เครือข่ายนี้ส่งคำขอตรวจบิลมากเกินไปในหนึ่งนาที กรุณารอประมาณหนึ่งนาทีแล้วลองใหม่ โควตาเดโมรายวันรีเซ็ตเวลา 00:00 UTC",
+    quotaIpDaily: "เครือข่ายนี้ใช้โควตา Nemotron ของวันนี้ครบแล้ว โควตาเดโมรีเซ็ตทุกวันเวลา 00:00 UTC",
+    quotaDailyCalls: "เดโมสาธารณะถึงเพดานการเรียก Nemotron ของวันนี้แล้ว โควตาเดโมรีเซ็ตทุกวันเวลา 00:00 UTC",
+    quotaBudget: "เดโมสาธารณะถึงเพดานค่าใช้จ่าย Nemotron ของวันนี้แล้ว หรือไฟล์นี้ใหญ่เกินไป โควตาเดโมรีเซ็ตทุกวันเวลา 00:00 UTC",
   },
   en: {
     product: "ARWEEN-Nexus",
@@ -300,6 +304,10 @@ const copy = {
     due: "Due",
     modelsLive: "Models",
     saved: "Saved",
+    quotaMinute: "Too many reviews from this network in one minute. Wait about a minute and try again. Daily demo quotas reset at 00:00 UTC.",
+    quotaIpDaily: "This network has used today's Nemotron allowance. The demo quota resets every day at 00:00 UTC.",
+    quotaDailyCalls: "The public demo has reached today's Nemotron call cap. The demo quota resets every day at 00:00 UTC.",
+    quotaBudget: "The public demo has reached today's Nemotron spend cap, or this request is too large. The demo quota resets every day at 00:00 UTC.",
   },
 } as const;
 
@@ -307,6 +315,18 @@ export type CopyKey = keyof (typeof copy)["en"];
 
 export function t(lang: Lang, key: CopyKey): string {
   return copy[lang][key];
+}
+
+const quotaKeys = {
+  RATE_LIMIT_PER_IP: "quotaMinute",
+  DAILY_IP_CAP: "quotaIpDaily",
+  DAILY_CALL_CAP: "quotaDailyCalls",
+  DAILY_BUDGET: "quotaBudget",
+} as const;
+
+export function quotaText(lang: Lang, code: string | undefined, fallback: string): string {
+  if (code && code in quotaKeys) return t(lang, quotaKeys[code as keyof typeof quotaKeys]);
+  return fallback;
 }
 
 const outcomes = {

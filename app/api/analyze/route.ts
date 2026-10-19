@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { contentTooLarge, uploadTooBigMessage } from "@/lib/demo-limits";
-import { GuardError, clientIp, enforceRateLimit } from "@/lib/guard";
+import { GuardError, clientIp, enforceRateLimit, guardResponse } from "@/lib/guard";
 import { AnalyzeError, analyzeRequest } from "@/lib/pipeline";
 import { requestContext } from "@/lib/request-context";
 import type { SampleId } from "@/lib/samples";
@@ -18,9 +18,7 @@ export async function POST(request: Request) {
     await enforceRateLimit(ip, "analyze");
     return await requestContext.run({ ip }, () => handleAnalyze(request));
   } catch (error) {
-    if (error instanceof GuardError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
+    if (error instanceof GuardError) return guardResponse(error);
     if (error instanceof AnalyzeError) {
       return NextResponse.json({ error: error.message, outcome: error.outcome }, { status: error.status });
     }

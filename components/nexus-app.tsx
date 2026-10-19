@@ -4,7 +4,7 @@ import { ArrowUp, Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { debtServiceMinor, maxPaymentMinor } from "@/lib/engine/money";
 import { formatDscr, formatMinor, majorToMinor, minorToMajorInput } from "@/lib/engine/format";
-import { findingText, outcomeLabel, rulePurpose, t, type Lang } from "@/lib/i18n";
+import { findingText, outcomeLabel, quotaText, rulePurpose, t, type Lang } from "@/lib/i18n";
 import { sampleInvoices } from "@/lib/samples";
 import type { BootstrapView, DecisionListItem, DecisionView } from "@/lib/view";
 
@@ -18,6 +18,14 @@ type AuditRow = {
 };
 
 type View = "review" | "decisions" | "history" | "parties" | "cash" | "settings";
+type BannerError = { code?: string; fallback: string };
+
+function bannerFromPayload(payload: { error?: unknown; code?: unknown }, fallback: string): BannerError {
+  return {
+    code: typeof payload.code === "string" ? payload.code : undefined,
+    fallback: typeof payload.error === "string" && payload.error.trim() ? payload.error.slice(0, 400) : fallback,
+  };
+}
 type SampleId = "A" | "B" | "C";
 
 const NAV: Array<{ id: View; key: "navReview" | "navDecisions" | "navHistory" | "navParties" | "navCash" | "navSettings" }> = [
@@ -79,7 +87,7 @@ export function NexusApp() {
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<BannerError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [cashIn, setCashIn] = useState("");
@@ -103,7 +111,7 @@ export function NexusApp() {
     void (async () => {
       const response = await fetch("/api/bootstrap");
       if (!response.ok) {
-        setError(await response.text());
+        setError({ fallback: (await response.text()).replace(/postgres(?:ql)?:\/\/\S+/gi, "postgres://[redacted]").slice(0, 280) });
         return;
       }
       const data = (await response.json()) as BootstrapView;
@@ -147,9 +155,9 @@ export function NexusApp() {
           : { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: body instanceof FormData ? body : JSON.stringify({ ...body, actor }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as { error?: unknown; code?: unknown; decision?: DecisionView };
       if (!response.ok) {
-        setError(payload.error ?? "Request failed");
+        setError(bannerFromPayload(payload, "Request failed"));
         return;
       }
       setDecision(payload.decision as DecisionView);
@@ -159,7 +167,7 @@ export function NexusApp() {
       setMenuOpen(false);
       await reloadLists();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError({ fallback: err instanceof Error ? err.message : "Request failed" });
     } finally {
       setBusy(false);
     }
@@ -175,7 +183,7 @@ export function NexusApp() {
 
   async function saveAssumptions() {
     if (!preview) {
-      setError(lang === "th" ? "ใส่จำนวนเงินที่ไม่ติดลบ ทศนิยมไม่เกิน 2 ตำแหน่ง" : "Enter non-negative amounts with at most 2 decimals.");
+      setError({ fallback: lang === "th" ? "ใส่จำนวนเงินที่ไม่ติดลบ ทศนิยมไม่เกิน 2 ตำแหน่ง" : "Enter non-negative amounts with at most 2 decimals." });
       return;
     }
     setBusy(true);
@@ -193,8 +201,8 @@ export function NexusApp() {
     });
     setBusy(false);
     if (!response.ok) {
-      const payload = await response.json();
-      setError(payload.error ?? "Could not save");
+      const payload = (await response.json()) as { error?: unknown; code?: unknown };
+      setError(bannerFromPayload(payload, "Could not save"));
       return;
     }
     setNotice(t(lang, "saved"));
@@ -221,10 +229,10 @@ export function NexusApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actor }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as { error?: unknown; code?: unknown };
     setBusy(false);
     if (!response.ok) {
-      setError(payload.error ?? "Could not update");
+      setError(bannerFromPayload(payload, "Could not update"));
       return;
     }
     setDecision(payload as DecisionView);
@@ -280,7 +288,11 @@ export function NexusApp() {
             </div>
           )}
 
-          {error && <p className="mb-4 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">{error}</p>}
+          {error && (
+            <p className="mb-4 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]" role="alert" data-testid="app-error">
+              {quotaText(lang, error.code, error.fallback)}
+            </p>
+          )}
           {notice && !showVerdict && <p className="mb-4 rounded-xl border border-[#e4e4e7] bg-white px-4 py-3 text-sm text-[#71717a]">{notice}</p>}
 
           {view === "review" && (

@@ -12,7 +12,7 @@ Check the invoice, the supplier, and the cash before a small business pays.
 
 ## Track
 
-Best Apps & Agents
+Best Apps & Agents only. This is the only track for this submission.
 
 ## Built with
 
@@ -35,7 +35,7 @@ Best Apps & Agents
 | Demo URL | https://arween-nexus.vercel.app |
 | Code | https://github.com/thanamethawat-cmyk/arween-nexus |
 | License | MIT (`LICENSE` at the repository root) |
-| Track | Best Apps & Agents |
+| Track | Best Apps & Agents only |
 | Video | Record from [docs/VIDEO_SCRIPT.md](VIDEO_SCRIPT.md). Upload a public YouTube video under 3:00. No copyrighted music. |
 | Feedback | Paste [docs/FEEDBACK.md](FEEDBACK.md). |
 
@@ -48,14 +48,14 @@ Checked against the rules page on 18 October 2026.
 | Requirement | Where it is |
 | --- | --- |
 | Working app on Token Factory or Nebius AI Cloud, using an NVIDIA open model | Live Token Factory calls to Nemotron Nano and Ultra. README section “How we use NVIDIA Nemotron on Nebius Token Factory”. |
-| Best Apps & Agents | This track. Nano does the fast extract. Ultra does the explanation. Super is the fallback. |
+| Best Apps & Agents | The only track for this submission. Nano does the fast extract. Ultra does the explanation. Super is the fallback. |
 | URL of a working demo | https://arween-nexus.vercel.app |
 | Text description of features | The description below, and the README. |
 | Public code repository with source, assets, and run instructions | GitHub link above. README setup covers local, Docker Compose, and Vercel/Neon. |
 | Open source license visible in the repo | MIT, `LICENSE`. |
 | README highlights Nemotron and how Token Factory accelerated the workflow | README section with model ids, the OpenAI-compatible endpoint, and measured latency and tokens. |
 | Demonstration video under 3 minutes, YouTube, no copyrighted music, shows the project running | Script only. The entrant still records and uploads it. |
-| Track identified | Best Apps & Agents. |
+| Track identified | Best Apps & Agents only. |
 | Feedback on Token Factory and NVIDIA tools actually used | [FEEDBACK.md](FEEDBACK.md). |
 | If the project existed before 26 August 2026, explain the update | It did not. Only the concept and spec existed. All code was written during the submission period. See the README note. |
 | Materials in English | README, this file, feedback, and the video script are English. The app also has a Thai UI for the reviewer. |

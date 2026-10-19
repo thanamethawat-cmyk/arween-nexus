@@ -15,7 +15,7 @@ Hosted on Vercel Hobby with Neon Free Postgres. Invoice extraction and Thai/Engl
 
 Fault is not assigned (`fault_determination = NOT_PERFORMED`).
 
-Track: **Best Apps & Agents**, Nebius x NVIDIA Global AI Hackathon. Behavior follows ARWEEN-NEXUS-TMS-001 (18 October 2026).
+Track: **Best Apps & Agents** only, Nebius x NVIDIA Global AI Hackathon. Behavior follows ARWEEN-NEXUS-TMS-001 (18 October 2026).
 
 ## Why
 
@@ -124,7 +124,9 @@ On the demo, open [the app](https://arween-nexus.vercel.app), leave the language
 - **Hallucination validator.** The explanation may cite only evaluated rule ids and amounts that already exist on the result, including the 1.25 threshold. A rejected explanation is stored with `accepted = false` and replaced.
 - **Human approval.** Status stays `proposed` until confirm or reject. The screen says no money moves. Hold does not create a new status.
 - **Audit log.** Every review stores the model id, latency, token counts, the retrieval provider, and the human action.
-- **Demo limits.** Defaults: 8 MB upload, 6 analyze requests per IP per minute, 30 Nemotron calls per IP per UTC day, 80 calls per day for everyone, and `$0.30` of estimated Token Factory spend per UTC day. A request that would cross the day’s cap returns HTTP 429 and does not call Token Factory. Confirm, reject, and cash edits are rate-limited separately and do not call a model.
+- **Demo limits.** Defaults: 8 MB upload, 6 analyze requests per IP per minute, 30 Nemotron calls per IP per UTC day, 80 calls per day for everyone, and `$0.30` of estimated Token Factory spend per UTC day. A request that would cross a cap returns HTTP 429 and does not call Token Factory. The JSON body has `code` (`RATE_LIMIT_PER_IP`, `DAILY_IP_CAP`, `DAILY_CALL_CAP`, or `DAILY_BUDGET`), `retryAfterSeconds`, and `resetsAt`. The screen shows that message in English or Thai and says the daily quota resets at 00:00 UTC. Confirm, reject, and cash edits are rate-limited separately and do not call a model.
+
+The defaults stay at 80 calls and `$0.30` per UTC day. For the judging window, 1–15 December 2026, raise them in the host’s environment and redeploy. `DEMO_DAILY_CALL_CAP=200` and `DEMO_DAILY_BUDGET_USD=1.00` is a higher public quota. `$1` per day for those 15 days is about `$15` of Token Factory spend if the cap is hit every day, so pick a pair that fits the remaining balance. The per-minute limit and the per-IP daily cap stay on their own variables.
 
 `gps_verified` is always null and is not used. Escrow, milestone payout, integrity snapshots, and network membership are not implemented.
 
@@ -171,9 +173,10 @@ The public demo uses this layout. Inference stays on Token Factory either way.
 2. Import the GitHub repository into a Vercel Hobby project. Framework preset: Next.js.
 3. Set the environment variables below for Production. Do not commit `NEBIUS_API_KEY` or `DATABASE_URL`.
 4. Deploy. The first request runs the schema and seed.
-5. Open `/api/health`. A healthy process returns `{ "ok": true }` plus the public demo limits.
+5. Open `/api/health`. A healthy process returns `{ "ok": true }` plus the public demo limits. If Neon is waking up, the route retries the connection and then answers. A failure is HTTP 503 JSON, not a model call.
+6. `vercel.json` registers one Vercel Cron, `15 5 * * *` (05:15 UTC, once a day, which is what Hobby allows). It calls `GET /api/keepalive`. That route runs `SELECT 1` and retries while the compute wakes. It does not read an invoice and it does not call Nemotron. A daily ping keeps the free database from sitting idle for days. A review after the compute has already slept can still wait a few seconds on the same retry.
 
-`maxDuration` on the analyze route is 300 seconds, which fits Vercel Hobby. A text review in the measured runs finished in well under that.
+`maxDuration` on the analyze route is 300 seconds, which fits Vercel Hobby. A text review in the measured runs finished in well under that. Health and keepalive allow 60 seconds so a cold database can finish its retries.
 
 ## Environment
 
@@ -191,9 +194,11 @@ The public demo uses this layout. Inference stays on Token Factory either way.
 | `DEMO_MAX_PASTE_CHARS` | Pasted text cap. Default `200000`. |
 | `DEMO_RATE_LIMIT_PER_MINUTE` | Analyze requests per IP per minute. Default `6`. |
 | `DEMO_MUTATION_RATE_LIMIT_PER_MINUTE` | Confirm, reject, assumption, and reset requests per IP per minute. Default `30`. |
-| `DEMO_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per UTC day. Default `80`. |
+| `DEMO_DAILY_CALL_CAP` | Nemotron HTTP calls per UTC day. Default `80`. When set, this wins over `DEMO_DAILY_NEMOTRON_CALLS`. |
+| `DEMO_DAILY_NEMOTRON_CALLS` | Same call cap, kept so an older environment still works. Default `80`. |
 | `DEMO_IP_DAILY_NEMOTRON_CALLS` | Nemotron HTTP calls per IP per UTC day. Default `30`. |
-| `DEMO_DAILY_USD_MICROS` | Estimated Token Factory spend per UTC day, in millionths of a dollar. Default `300000` (`$0.30`). |
+| `DEMO_DAILY_BUDGET_USD` | Estimated Token Factory spend per UTC day, in dollars. Default `0.30`. When set, this wins over `DEMO_DAILY_USD_MICROS`. |
+| `DEMO_DAILY_USD_MICROS` | Same spend cap, in millionths of a dollar. Default `300000` (`$0.30`). |
 | `PG_POOL_MAX` | Postgres connections per process. Default `3`. |
 
 ## Built during the submission period

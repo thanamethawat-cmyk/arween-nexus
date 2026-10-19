@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { updateAssumptions } from "@/lib/db";
-import { GuardError, clientIp, enforceRateLimit } from "@/lib/guard";
+import { GuardError, clientIp, enforceRateLimit, guardResponse } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export async function PUT(request: Request) {
   try {
     await enforceRateLimit(clientIp(request), "mutate");
   } catch (error) {
-    if (error instanceof GuardError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof GuardError) return guardResponse(error);
     throw error;
   }
   const body = (await request.json()) as Record<string, unknown>;
