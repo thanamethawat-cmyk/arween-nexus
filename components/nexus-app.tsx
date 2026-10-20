@@ -1,15 +1,22 @@
 "use client";
 
 import { ArrowUp, ClipboardList, History as HistoryIcon, Menu, Search, Settings as SettingsIcon, Upload, Users, Wallet, type LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-context";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { PrepareError, prepareUpload, type PrepareCode } from "@/lib/prepare-upload";
+import { PrepareError, prepareUpload, uploadKind, type PrepareCode } from "@/lib/prepare-upload";
 import { debtServiceMinor, maxPaymentMinor } from "@/lib/engine/money";
 import { formatDscr, formatMinor, majorToMinor, minorToMajorInput } from "@/lib/engine/format";
 import { findingText, outcomeLabel, quotaText, rulePurpose, t, type Lang } from "@/lib/i18n";
 import { sampleInvoices } from "@/lib/samples";
 import type { BootstrapView, DecisionListItem, DecisionView } from "@/lib/view";
+
+type PendingUpload = {
+  file: File;
+  imageUrl: string | null;
+  textPreview: string | null;
+  sourceName: string;
+};
 
 type AuditRow = {
   auditId: string;
@@ -102,6 +109,23 @@ export function NexusApp() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
+  const pendingUrlRef = useRef<string | null>(null);
+
+  function clearPendingUpload() {
+    setPendingUpload((current) => {
+      if (current?.imageUrl) URL.revokeObjectURL(current.imageUrl);
+      return null;
+    });
+  }
+
+  useEffect(() => {
+    pendingUrlRef.current = pendingUpload?.imageUrl ?? null;
+  }, [pendingUpload]);
+
+  useEffect(() => () => {
+    if (pendingUrlRef.current) URL.revokeObjectURL(pendingUrlRef.current);
+  }, []);
 
   async function reloadLists() {
     const [decisionsRes, auditRes] = await Promise.all([fetch("/api/decisions"), fetch("/api/audit")]);
@@ -166,6 +190,7 @@ export function NexusApp() {
         setError(bannerFromPayload(payload, "Request failed"));
         return;
       }
+      clearPendingUpload();
       setDecision(payload.decision as DecisionView);
       setRulesOpen(false);
       setEvidenceOpen(false);
@@ -184,17 +209,37 @@ export function NexusApp() {
     setBusy(true);
     setError(null);
     setNotice(null);
+    clearPendingUpload();
     try {
       const prepared = await prepareUpload(file);
-      const form = new FormData();
-      form.set("file", prepared);
-      form.set("actor", actor);
-      await run(form);
+      const kind = uploadKind(prepared);
+      let imageUrl: string | null = null;
+      let textPreview: string | null = null;
+      if (kind === "image") {
+        imageUrl = URL.createObjectURL(prepared);
+      } else if (kind === "text") {
+        textPreview = (await prepared.text()).slice(0, 1200);
+      }
+      setPendingUpload({
+        file: prepared,
+        imageUrl,
+        textPreview,
+        sourceName: file.name,
+      });
     } catch (err) {
-      setBusy(false);
       if (err instanceof PrepareError) setError({ fallback: "", prepare: err.code });
       else setError({ fallback: err instanceof Error ? err.message : "Request failed" });
+    } finally {
+      setBusy(false);
     }
+  }
+
+  async function confirmUpload() {
+    if (!pendingUpload) return;
+    const form = new FormData();
+    form.set("file", pendingUpload.file);
+    form.set("actor", actor);
+    await run(form);
   }
 
   async function saveAssumptions() {
@@ -329,12 +374,21 @@ export function NexusApp() {
               paste={paste}
               boot={boot}
               history={history}
+              pendingUpload={pendingUpload}
               onDragOver={setDragOver}
               onFile={onFile}
+              onConfirmUpload={() => void confirmUpload()}
+              onCancelUpload={clearPendingUpload}
               onTogglePaste={() => setShowPaste((value) => !value)}
               onPaste={setPaste}
-              onRunPaste={() => void run({ text: paste })}
-              onSample={(sample) => void run({ sample })}
+              onRunPaste={() => {
+                clearPendingUpload();
+                void run({ text: paste });
+              }}
+              onSample={(sample) => {
+                clearPendingUpload();
+                void run({ sample });
+              }}
             />
           )}
 
@@ -505,7 +559,7 @@ function LangCluster({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => voi
 }
 
 function Review({
-  lang, currency, preview, busy, dragOver, showPaste, paste, boot, history, onDragOver, onFile, onTogglePaste, onPaste, onRunPaste, onSample,
+  lang, currency, preview, busy, dragOver, showPaste, paste, boot, history, pendingUpload, onDragOver, onFile, onConfirmUpload, onCancelUpload, onTogglePaste, onPaste, onRunPaste, onSample,
 }: {
   lang: Lang;
   currency: string;
@@ -516,8 +570,11 @@ function Review({
   paste: string;
   boot: BootstrapView | null;
   history: DecisionListItem[];
+  pendingUpload: PendingUpload | null;
   onDragOver: (value: boolean) => void;
   onFile: (file: File | undefined) => void;
+  onConfirmUpload: () => void;
+  onCancelUpload: () => void;
   onTogglePaste: () => void;
   onPaste: (value: string) => void;
   onRunPaste: () => void;
@@ -536,37 +593,90 @@ function Review({
     { id: "B", outcome: "PARTIAL", blurb: "caseBBlurb" },
     { id: "C", outcome: "HOLD", blurb: "caseCBlurb" },
   ];
+  const readyLabel = pendingUpload
+    ? t(lang, "previewReady")
+        .replace("{name}", pendingUpload.sourceName)
+        .replace("{size}", formatBytes(pendingUpload.file.size))
+    : "";
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-[var(--aw-muted)]">{t(lang, "newReviewSub")}</p>
       {boot?.demo.tavily && <p className="text-sm text-[var(--aw-muted)]">{t(lang, "demoTavily")}</p>}
-      <label
-        data-testid="dropzone"
-        onDragOver={(event) => { event.preventDefault(); onDragOver(true); }}
-        onDragLeave={() => onDragOver(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          onDragOver(false);
-          onFile(event.dataTransfer.files?.[0]);
-        }}
-        className={`flex h-[220px] cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed md:h-[280px] ${CARD} ${dragOver ? "border-[#4C49ED]" : "border-[var(--aw-line-strong)]"}`}
-      >
-        <span className="grid size-14 place-items-center rounded-full bg-[#eef0ff] text-[#4C49ED]"><ArrowUp size={22} /></span>
-        <span className="text-lg font-semibold text-[var(--aw-ink)]">{busy ? t(lang, "workingShort") : t(lang, "dropTitle")}</span>
-        <span className="text-sm text-[var(--aw-muted)]">{t(lang, "dropHint")}</span>
-        <span className="rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white">{t(lang, "browse")}</span>
-        <input
-          type="file"
-          className="sr-only"
-          disabled={busy}
-          accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.json,application/pdf,text/plain,application/json"
-          onChange={(event) => {
-            const chosen = event.target.files?.[0];
-            event.target.value = "";
-            onFile(chosen);
+      {pendingUpload ? (
+        <section data-testid="upload-preview" className={`flex flex-col gap-4 p-5 ${CARD}`}>
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--aw-ink)]">{t(lang, "previewTitle")}</h2>
+            <p className="mt-1 text-sm text-[var(--aw-muted)]">
+              {pendingUpload.imageUrl ? t(lang, "previewHint") : pendingUpload.textPreview ? t(lang, "previewTextTitle") : t(lang, "previewPdfNote")}
+            </p>
+            <p className="mt-2 text-xs text-[var(--aw-muted)]">{readyLabel}</p>
+          </div>
+          {pendingUpload.imageUrl && (
+            <div className="overflow-hidden rounded-2xl bg-[var(--aw-inset)]">
+              {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview */}
+              <img
+                src={pendingUpload.imageUrl}
+                alt={pendingUpload.sourceName}
+                className="mx-auto max-h-[min(70vh,640px)] w-auto max-w-full object-contain"
+              />
+            </div>
+          )}
+          {pendingUpload.textPreview && (
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl bg-[var(--aw-inset)] p-4 text-xs text-[var(--aw-ink)]">{pendingUpload.textPreview}</pre>
+          )}
+          {!pendingUpload.imageUrl && !pendingUpload.textPreview && (
+            <p className="rounded-2xl bg-[var(--aw-inset)] px-4 py-6 text-sm text-[var(--aw-muted)]">{pendingUpload.file.name}</p>
+          )}
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              data-testid="upload-cancel"
+              disabled={busy}
+              onClick={onCancelUpload}
+              className="rounded-xl border border-[var(--aw-line-strong)] bg-[var(--aw-card)] px-4 py-2.5 text-sm font-semibold text-[var(--aw-ink)] disabled:opacity-50"
+            >
+              {t(lang, "previewCancel")}
+            </button>
+            <button
+              type="button"
+              data-testid="upload-confirm"
+              disabled={busy}
+              onClick={onConfirmUpload}
+              className="rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {busy ? t(lang, "workingShort") : t(lang, "previewConfirm")}
+            </button>
+          </div>
+        </section>
+      ) : (
+        <label
+          data-testid="dropzone"
+          onDragOver={(event) => { event.preventDefault(); onDragOver(true); }}
+          onDragLeave={() => onDragOver(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            onDragOver(false);
+            onFile(event.dataTransfer.files?.[0]);
           }}
-        />
-      </label>
+          className={`flex h-[220px] cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed md:h-[280px] ${CARD} ${dragOver ? "border-[#4C49ED]" : "border-[var(--aw-line-strong)]"}`}
+        >
+          <span className="grid size-14 place-items-center rounded-full bg-[#eef0ff] text-[#4C49ED]"><ArrowUp size={22} /></span>
+          <span className="text-lg font-semibold text-[var(--aw-ink)]">{busy ? t(lang, "workingShort") : t(lang, "dropTitle")}</span>
+          <span className="text-sm text-[var(--aw-muted)]">{t(lang, "dropHint")}</span>
+          <span className="rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white">{t(lang, "browse")}</span>
+          <input
+            type="file"
+            className="sr-only"
+            disabled={busy}
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.json,application/pdf,text/plain,application/json"
+            onChange={(event) => {
+              const chosen = event.target.files?.[0];
+              event.target.value = "";
+              onFile(chosen);
+            }}
+          />
+        </label>
+      )}
       <button className="self-start text-sm text-[var(--aw-muted)] underline-offset-2 hover:underline" onClick={onTogglePaste}>{t(lang, "pasteToggle")}</button>
       {showPaste && (
         <div className={`flex flex-col gap-2 p-5 ${CARD}`}>
@@ -1292,6 +1402,12 @@ function formatQty(millis: string): string {
   const frac = value % 1000n;
   if (frac === 0n) return whole.toString();
   return `${whole.toString()}.${frac.toString().padStart(3, "0").replace(/0+$/, "")}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatWhen(iso: string, lang: Lang): string {

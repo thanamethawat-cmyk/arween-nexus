@@ -64,5 +64,7 @@ describe("browser upload preparation", () => {
     expect(t("th", "fileTextTooBig")).toContain("3 MB");
     expect(t("en", "themeDark")).toBe("Dark mode");
     expect(t("th", "themeLight")).toBe("โหมดสว่าง");
+    expect(t("en", "previewConfirm")).toMatch(/use this file/i);
+    expect(t("th", "previewTitle")).toContain("ตัวอย่าง");
   });
 });
