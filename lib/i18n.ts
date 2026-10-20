@@ -23,7 +23,7 @@ const copy = {
     samples: "ข้อมูลตัวอย่างหนึ่งคลิก",
     samplesHint: "บริษัทสมมติทั้งหมด ใช้ตัวเลขจากสเปก TMS-001",
     upload: "อัปโหลดใบแจ้งหนี้",
-    uploadHint: "PDF, รูป, TXT หรือ JSON ขนาดไม่เกิน 8 MB",
+    uploadHint: "PDF, รูป, TXT หรือ JSON เลือกได้ถึง 25 MB ไฟล์ใหญ่จะถูกย่อในเบราว์เซอร์",
     paste: "หรือวางข้อความใบแจ้งหนี้",
     runPaste: "ตรวจข้อความนี้",
     actor: "ชื่อผู้กดยืนยัน",
@@ -69,7 +69,13 @@ const copy = {
     newReviewTitle: "ตรวจใบแจ้งหนี้ใหม่",
     newReviewSub: "อัปโหลดใบแจ้งหนี้หรือหลักฐานการส่งของ ARWEEN จะตรวจและเสนอ PAY, PARTIAL, HOLD หรือ INSUFFICIENT",
     dropTitle: "ลากใบแจ้งหนี้มาวางที่นี่",
-    dropHint: "PDF, PNG หรือ JPG · ไม่เกิน 8 MB · ไทยหรืออังกฤษ",
+    dropHint: "PDF, PNG หรือ JPG · ไม่เกิน 25 MB · ย่อในเบราว์เซอร์ก่อนส่ง · ไทยหรืออังกฤษ",
+    fileTooBig: "ไฟล์นี้ใหญ่กว่า 25 MB เลือกใบแจ้งหนี้หรือรูปที่เล็กกว่า",
+    fileShrinkFail: "ย่อไฟล์นี้ให้เล็กพอสำหรับเดโมฟรีไม่สำเร็จ โฮสต์รับคำขอได้ประมาณ 4.5 MB ลองถ่ายรูปหนึ่งหน้า",
+    fileTextTooBig: "ไฟล์ข้อความหรือ JSON ต้องเล็กกว่า 3 MB รูปและ PDF ขนาดไม่เกิน 25 MB จะถูกย่อในเบราว์เซอร์",
+    fileType: "ใช้ไฟล์ PDF, PNG, JPEG, WEBP, TXT หรือ JSON",
+    themeDark: "โหมดมืด",
+    themeLight: "โหมดสว่าง",
     browse: "เลือกไฟล์",
     pasteToggle: "หรือวางข้อความใบแจ้งหนี้",
     cashInPeriod: "เงินสดรับ (งวดถัดไป)",
@@ -177,7 +183,7 @@ const copy = {
     samples: "One-click fictional samples",
     samplesHint: "All companies are fictional. Figures match spec TMS-001.",
     upload: "Upload an invoice",
-    uploadHint: "PDF, image, TXT, or JSON up to 8 MB",
+    uploadHint: "PDF, image, TXT, or JSON. You can choose up to 25 MB. Large photos and PDFs are reduced in the browser.",
     paste: "Or paste invoice text",
     runPaste: "Review this text",
     actor: "Name on the confirmation",
@@ -223,7 +229,13 @@ const copy = {
     newReviewTitle: "New invoice review",
     newReviewSub: "Upload an invoice or delivery evidence. ARWEEN checks it and proposes PAY, PARTIAL, HOLD or INSUFFICIENT.",
     dropTitle: "Drag & drop invoice here",
-    dropHint: "PDF, PNG or JPG · up to 8 MB · Thai or English",
+    dropHint: "PDF, PNG or JPG · up to 25 MB · reduced in the browser · Thai or English",
+    fileTooBig: "This file is larger than 25 MB. Choose a smaller invoice or photo.",
+    fileShrinkFail: "This file could not be reduced enough to send. The free host accepts about 4.5 MB per request. Try a photo of one page.",
+    fileTextTooBig: "Text and JSON files must be under 3 MB. Photos and PDFs up to 25 MB are reduced in this browser before sending.",
+    fileType: "Use a PDF, PNG, JPEG, WEBP, TXT, or JSON invoice.",
+    themeDark: "Dark mode",
+    themeLight: "Light mode",
     browse: "Browse files",
     pasteToggle: "Or paste invoice text",
     cashInPeriod: "Cash in (next period)",
@@ -326,6 +338,13 @@ const quotaKeys = {
 
 export function quotaText(lang: Lang, code: string | undefined, fallback: string): string {
   if (code && code in quotaKeys) return t(lang, quotaKeys[code as keyof typeof quotaKeys]);
+  return uploadFallback(lang, fallback);
+}
+
+export function uploadFallback(lang: Lang, fallback: string): string {
+  if (/^File is larger than/i.test(fallback)) return t(lang, "fileShrinkFail");
+  if (/too long/i.test(fallback)) return t(lang, "fileTextTooBig");
+  if (/Use a PDF/i.test(fallback)) return t(lang, "fileType");
   return fallback;
 }
 

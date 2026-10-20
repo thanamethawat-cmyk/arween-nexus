@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { NexusApp } from "@/components/nexus-app";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthContext } from "@/components/auth-context";
 import {
   CONSENT_KEY,
@@ -223,7 +224,7 @@ export function AuthGate() {
   const stage = !ready ? "boot" : canEnterApp(session) ? "app" : session?.kind === "user" ? "consent" : screen;
 
   if (stage === "boot") {
-    return <div className="min-h-screen bg-[#F5F7FA]" />;
+    return <div className="min-h-screen bg-[var(--aw-canvas)]" />;
   }
 
   if (stage === "app" && session) {
@@ -235,45 +236,48 @@ export function AuthGate() {
   }
 
   return (
-    <div className="min-h-screen overflow-auto bg-[#F5F7FA] px-4 py-8 text-[#343C6A]">
+    <div className="min-h-screen overflow-auto bg-[var(--aw-canvas)] px-4 py-8 text-[var(--aw-ink)]">
       <div className="mx-auto w-full max-w-lg">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-2xl bg-[#4C49ED] text-base font-semibold text-white">A</div>
             <div className="leading-tight">
               <div className="text-xl font-semibold tracking-tight">ARWEEN.</div>
-              <div className="text-xs text-[#718EBF]">{copy.kicker}</div>
+              <div className="text-xs text-[var(--aw-muted)]">{copy.kicker}</div>
             </div>
           </div>
-          <div className="flex rounded-full bg-white p-1 shadow-[0_4px_20px_rgba(45,96,255,0.06)]">
+          <div className="flex items-center gap-2">
+            <ThemeToggle lang={lang} />
+            <div className="flex rounded-full bg-[var(--aw-card)] p-1 shadow-[0_4px_20px_rgba(45,96,255,0.06)]">
             {(["th", "en"] as const).map((codeName) => (
               <button
                 key={codeName}
                 type="button"
                 data-testid={`lang-${codeName}`}
                 onClick={() => chooseLang(codeName)}
-                className={`rounded-full px-2.5 py-1.5 text-xs ${lang === codeName ? "bg-[#4C49ED] font-semibold text-white" : "text-[#718EBF]"}`}
+                className={`rounded-full px-2.5 py-1.5 text-xs ${lang === codeName ? "bg-[#4C49ED] font-semibold text-white" : "text-[var(--aw-muted)]"}`}
               >
                 {codeName.toUpperCase()}
               </button>
             ))}
+            </div>
           </div>
         </div>
 
-        <div className="rounded-[25px] bg-white p-6 shadow-[0_8px_24px_rgba(45,96,255,0.06)] sm:p-8">
-          <p className="rounded-2xl bg-[#F5F7FA] px-4 py-3 text-sm text-[#718EBF]">{copy.banner}</p>
+        <div className="rounded-[25px] bg-[var(--aw-card)] p-6 shadow-[0_8px_24px_rgba(45,96,255,0.06)] sm:p-8">
+          <p className="rounded-2xl bg-[var(--aw-inset)] px-4 py-3 text-sm text-[var(--aw-muted)]">{copy.banner}</p>
 
           {stage === "login" && (
             <div className="mt-5 space-y-4">
               <h1 className="text-2xl font-semibold tracking-tight">{copy.loginTitle}</h1>
-              <button type="button" data-testid="auth-skip" onClick={enterGuest} className="w-full rounded-2xl bg-[#16DBCC] px-4 py-4 text-base font-semibold text-[#343C6A]">
+              <button type="button" data-testid="auth-skip" onClick={enterGuest} className="w-full rounded-2xl bg-[#16DBCC] px-4 py-4 text-base font-semibold text-[#102033]">
                 {copy.skip}
               </button>
-              <button type="button" data-testid="auth-google" onClick={() => enterAs(GOOGLE_DEMO_USER)} className="flex w-full items-center justify-center gap-3 rounded-2xl border border-[#e6ebf5] bg-white px-4 py-3 text-sm font-semibold">
-                <span className="grid size-7 place-items-center rounded-full bg-[#F5F7FA] text-sm font-bold text-[#4C49ED]">G</span>
+              <button type="button" data-testid="auth-google" onClick={() => enterAs(GOOGLE_DEMO_USER)} className="flex w-full items-center justify-center gap-3 rounded-2xl border border-[var(--aw-line)] bg-[var(--aw-card)] px-4 py-3 text-sm font-semibold">
+                <span className="grid size-7 place-items-center rounded-full bg-[var(--aw-inset)] text-sm font-bold text-[#4C49ED]">G</span>
                 {copy.google}
               </button>
-              <p className="text-xs text-[#718EBF]">{copy.googleNote}</p>
+              <p className="text-xs text-[var(--aw-muted)]">{copy.googleNote}</p>
               <form onSubmit={onLogin} className="space-y-3">
                 <Field label={copy.email} id="auth-email" type="email" value={email} onChange={setEmail} autoComplete="username" />
                 <Field label={copy.password} id="auth-password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
@@ -285,21 +289,21 @@ export function AuthGate() {
               <button type="button" data-testid="auth-signup" onClick={() => { setFormError(null); setScreen("signup"); }} className="text-sm font-semibold text-[#4C49ED]">
                 {copy.signupLink}
               </button>
-              <div className="border-t border-[#e6ebf5] pt-4">
+              <div className="border-t border-[var(--aw-line)] pt-4">
                 <h2 className="text-sm font-semibold">{copy.demoHeading}</h2>
-                <p className="mt-1 text-xs text-[#718EBF]">{copy.demoHint}</p>
+                <p className="mt-1 text-xs text-[var(--aw-muted)]">{copy.demoHint}</p>
                 <ul className="mt-3 space-y-3">
                   {SEEDED_DEMO_USERS.map((user) => (
-                    <li key={user.id} className="rounded-2xl bg-[#F5F7FA] p-3">
+                    <li key={user.id} className="rounded-2xl bg-[var(--aw-inset)] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold">{user.name}</p>
-                          <p className="text-xs text-[#718EBF]">{user.email}</p>
-                          <p className="text-xs text-[#718EBF]">{user.phone} · {copy.password}: {user.password}</p>
+                          <p className="text-xs text-[var(--aw-muted)]">{user.email}</p>
+                          <p className="text-xs text-[var(--aw-muted)]">{user.phone} · {copy.password}: {user.password}</p>
                         </div>
-                        <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-[#4C49ED]">{copy.fictional}</span>
+                        <span className="rounded-full bg-[var(--aw-card)] px-2 py-1 text-[11px] font-semibold text-[#4C49ED]">{copy.fictional}</span>
                       </div>
-                      <button type="button" data-testid={`auth-demo-${user.id}`} onClick={() => enterAs(user)} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-[#343C6A]">
+                      <button type="button" data-testid={`auth-demo-${user.id}`} onClick={() => enterAs(user)} className="mt-3 w-full rounded-xl bg-[var(--aw-card)] px-3 py-2 text-sm font-semibold text-[var(--aw-ink)]">
                         {copy.demoButton}
                       </button>
                     </li>
@@ -323,7 +327,7 @@ export function AuthGate() {
               <button type="button" onClick={() => { setFormError(null); setScreen("login"); }} className="text-sm font-semibold text-[#4C49ED]">
                 {copy.haveAccount}
               </button>
-              <button type="button" data-testid="auth-skip" onClick={enterGuest} className="w-full rounded-2xl bg-[#16DBCC] px-4 py-3 text-sm font-semibold text-[#343C6A]">
+              <button type="button" data-testid="auth-skip" onClick={enterGuest} className="w-full rounded-2xl bg-[#16DBCC] px-4 py-3 text-sm font-semibold text-[#102033]">
                 {copy.guestInstead}
               </button>
             </form>
@@ -332,8 +336,8 @@ export function AuthGate() {
           {stage === "verify" && pending && (
             <form onSubmit={onVerify} className="mt-5 space-y-3">
               <h1 className="text-2xl font-semibold tracking-tight">{copy.verifyTitle}</h1>
-              <p className="text-sm text-[#718EBF]">{copy.verifyBody}</p>
-              <p className="text-sm text-[#718EBF]">{pending.email} · {pending.phone}</p>
+              <p className="text-sm text-[var(--aw-muted)]">{copy.verifyBody}</p>
+              <p className="text-sm text-[var(--aw-muted)]">{pending.email} · {pending.phone}</p>
               <p className="rounded-2xl bg-[#eef0ff] px-4 py-3 text-base font-semibold text-[#4C49ED]" data-testid="auth-demo-code">{copy.codeShown}</p>
               <Field label={copy.codeLabel} id="auth-code" value={code} onChange={setCode} inputMode="numeric" autoComplete="one-time-code" />
               {formError && <p className="text-sm text-[#d32f2f]" role="alert" data-testid="auth-error">{formError}</p>}
@@ -349,14 +353,14 @@ export function AuthGate() {
           {stage === "consent" && session?.kind === "user" && (
             <div className="mt-5 space-y-3">
               <h1 className="text-2xl font-semibold tracking-tight">{PDPA_COPY[lang].title}</h1>
-              <p className="text-sm text-[#718EBF]">{session.name} · {session.email} · {copy.fictional}</p>
+              <p className="text-sm text-[var(--aw-muted)]">{session.name} · {session.email} · {copy.fictional}</p>
               <p className="text-sm">{PDPA_COPY[lang].intro}</p>
               <p className="text-sm">{PDPA_COPY[lang].purpose}</p>
               <p className="text-sm">{PDPA_COPY[lang].collected}</p>
               <p className="text-sm">{PDPA_COPY[lang].retention}</p>
               <p className="text-sm">{PDPA_COPY[lang].rights}</p>
               <p className="text-sm">{PDPA_COPY[lang].contact}</p>
-              <label className="flex items-start gap-3 rounded-2xl bg-[#F5F7FA] p-3 text-sm">
+              <label className="flex items-start gap-3 rounded-2xl bg-[var(--aw-inset)] p-3 text-sm">
                 <input
                   data-testid="auth-consent"
                   type="checkbox"
@@ -369,7 +373,7 @@ export function AuthGate() {
               <button type="button" data-testid="auth-accept" disabled={!agreed} onClick={onAccept} className="w-full rounded-2xl bg-[#4C49ED] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">
                 {PDPA_COPY[lang].accept}
               </button>
-              <button type="button" data-testid="auth-skip" onClick={enterGuest} className="w-full rounded-2xl bg-[#16DBCC] px-4 py-3 text-sm font-semibold text-[#343C6A]">
+              <button type="button" data-testid="auth-skip" onClick={enterGuest} className="w-full rounded-2xl bg-[#16DBCC] px-4 py-3 text-sm font-semibold text-[#102033]">
                 {copy.guestInstead}
               </button>
               <button type="button" onClick={signOut} className="text-sm font-semibold text-[#4C49ED]">
@@ -396,7 +400,7 @@ function Field({
   inputMode?: "numeric";
 }) {
   return (
-    <label className="block text-xs text-[#718EBF]" htmlFor={id}>
+    <label className="block text-xs text-[var(--aw-muted)]" htmlFor={id}>
       {label}
       <input
         id={id}
@@ -407,7 +411,7 @@ function Field({
         autoComplete={autoComplete}
         inputMode={inputMode}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1 h-11 w-full rounded-xl border border-[#e6ebf5] bg-[#F5F7FA] px-3 text-sm text-[#343C6A] outline-none"
+        className="mt-1 h-11 w-full rounded-xl border border-[var(--aw-line)] bg-[var(--aw-inset)] px-3 text-sm text-[var(--aw-ink)] outline-none"
       />
     </label>
   );

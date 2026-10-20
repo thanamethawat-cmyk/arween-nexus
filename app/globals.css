@@ -1,14 +1,61 @@
 @import "tailwindcss";
 
+:root {
+  --aw-canvas: #f5f7fa;
+  --aw-card: #ffffff;
+  --aw-inset: #f5f7fa;
+  --aw-ink: #343c6a;
+  --aw-muted: #5572a3;
+  --aw-faint: #767676;
+  --aw-line: #e6ebf5;
+  --aw-line-strong: #d6deee;
+  --aw-hover: #fbfcff;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --aw-canvas: #0f1219;
+  --aw-card: #1a2130;
+  --aw-inset: #121826;
+  --aw-ink: #e8ebf7;
+  --aw-muted: #b7c2dc;
+  --aw-faint: #93a0bd;
+  --aw-line: #2e384d;
+  --aw-line-strong: #3d4a64;
+  --aw-hover: #243044;
+  color-scheme: dark;
+}
+
 @theme inline {
   --font-sans: var(--font-inter), var(--font-thai), "Noto Sans Thai", sans-serif;
-  --color-background: #f5f7fa;
-  --color-foreground: #343c6a;
+  --color-background: var(--aw-canvas);
+  --color-foreground: var(--aw-ink);
 }
 
 * { box-sizing: border-box; }
 
-html, body { margin: 0; min-height: 100%; background: #f5f7fa; color: #343c6a; }
+html, body { margin: 0; min-height: 100%; background: var(--aw-canvas); color: var(--aw-ink); }
+
+html[data-theme="dark"] .bg-\[\#eef0ff\] { background-color: #2a2d55; }
+html[data-theme="dark"] .bg-\[\#e7fbfa\] { background-color: #123330; }
+html[data-theme="dark"] .bg-\[\#eceef6\] { background-color: #2c3348; }
+html[data-theme="dark"] .bg-\[\#f3f2ff\] { background-color: #2a2848; }
+html[data-theme="dark"] .bg-\[\#f4f4f5\] { background-color: #2a2e38; }
+html[data-theme="dark"] .bg-\[\#fff1f1\] { background-color: #3a1d1d; }
+html[data-theme="dark"] .bg-\[\#fef2f2\] { background-color: #3a1d1d; }
+html[data-theme="dark"] .bg-\[\#f0fdf4\] { background-color: #143024; }
+html[data-theme="dark"] .bg-\[\#fffbeb\] { background-color: #33280f; }
+html[data-theme="dark"] .bg-\[\#eff6ff\] { background-color: #17243a; }
+html[data-theme="dark"] .text-\[\#4C49ED\] { color: #c4c2ff; }
+html[data-theme="dark"] .hover\:text-\[\#4C49ED\]:hover { color: #c4c2ff; }
+html[data-theme="dark"] .text-\[\#2D60FF\] { color: #9db7ff; }
+html[data-theme="dark"] .text-\[\#d32f2f\] { color: #ffb4b4; }
+html[data-theme="dark"] .text-\[\#dc2626\] { color: #ffb4b4; }
+html[data-theme="dark"] .text-\[\#16a34a\] { color: #86efac; }
+html[data-theme="dark"] .text-\[\#d97706\] { color: #fcd34d; }
+html[data-theme="dark"] .text-\[\#2563eb\] { color: #93c5fd; }
+html[data-theme="dark"] .text-\[\#0f9d97\] { color: #5eead4; }
+html[data-theme="dark"] .text-\[\#6d6af2\] { color: #c4c2ff; }
 
 body {
   font-family: var(--font-inter), var(--font-thai), "Noto Sans Thai", sans-serif;

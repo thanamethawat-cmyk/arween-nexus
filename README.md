@@ -8,6 +8,8 @@ Hosted on Vercel Hobby with Neon Free Postgres. Invoice extraction and Thai/Engl
 
 UI style inspired by BankDash Dashboard UI Kit (Figma Community).
 
+The sun/moon control in the top bar switches light and dark. The choice is saved in this browser (`arween-theme`). With nothing saved, the page follows the system theme. Labels are Thai or English with the rest of the screen.
+
 ## Simulated sign-in
 
 Sign-in is simulated. There is no auth provider, no Google OAuth, no email delivery, and no SMS. These screens do not call a paid service. API routes stay open. A password you type for a new account stays in this browser’s `localStorage` and is not sent to the server.
@@ -148,7 +150,7 @@ On the demo, open [the app](https://arween-nexus.vercel.app), leave the language
 - **Hallucination validator.** The explanation may cite only evaluated rule ids and amounts that already exist on the result, including the 1.25 threshold. A rejected explanation is stored with `accepted = false` and replaced.
 - **Human approval.** Status stays `proposed` until confirm or reject. The screen says no money moves. Hold does not create a new status.
 - **Audit log.** Every review stores the model id, latency, token counts, the retrieval provider, and the human action.
-- **Demo limits.** Defaults: 8 MB upload, 6 analyze requests per IP per minute, 30 Nemotron calls per IP per UTC day, 80 calls per day for everyone, and `$0.30` of estimated Token Factory spend per UTC day. A request that would cross a cap returns HTTP 429 and does not call Token Factory. The JSON body has `code` (`RATE_LIMIT_PER_IP`, `DAILY_IP_CAP`, `DAILY_CALL_CAP`, or `DAILY_BUDGET`), `retryAfterSeconds`, and `resetsAt`. The screen shows that message in English or Thai and says the daily quota resets at 00:00 UTC. Confirm, reject, and cash edits are rate-limited separately and do not call a model.
+- **Demo limits.** The screen accepts a file up to 25 MB. Photos are downscaled in the browser (longest edge 1,600 px, JPEG). A PDF larger than the request cap is turned into text when the pages already contain text, or into a JPEG of the first two pages when they do not. The request that reaches the server stays at or below 3 MB. Vercel Hobby drops a serverless body around 4.5 MB, and this path does not use Blob storage, S3, or any other paid store. The vision model receives only that small JPEG, so a large original file does not enlarge the Token Factory call. Defaults that are unchanged: 6 analyze requests per IP per minute, 30 Nemotron calls per IP per UTC day, 80 calls per day for everyone, and `$0.30` of estimated Token Factory spend per UTC day. A request that would cross a cap returns HTTP 429 and does not call Token Factory. The JSON body has `code` (`RATE_LIMIT_PER_IP`, `DAILY_IP_CAP`, `DAILY_CALL_CAP`, or `DAILY_BUDGET`), `retryAfterSeconds`, and `resetsAt`. The screen shows that message in English or Thai and says the daily quota resets at 00:00 UTC. An oversize file is also explained in both languages and is not sent. Confirm, reject, and cash edits are rate-limited separately and do not call a model.
 
 The defaults stay at 80 calls and `$0.30` per UTC day. For the judging window, 1–15 December 2026, raise them in the host’s environment and redeploy. `DEMO_DAILY_CALL_CAP=200` and `DEMO_DAILY_BUDGET_USD=1.00` is a higher public quota. `$1` per day for those 15 days is about `$15` of Token Factory spend if the cap is hit every day, so pick a pair that fits the remaining balance. The per-minute limit and the per-IP daily cap stay on their own variables.
 
@@ -214,7 +216,7 @@ The public demo uses this layout. Inference stays on Token Factory either way.
 | `NEBIUS_EXPLAIN_FALLBACK_MODEL` | Super model id. |
 | `NEBIUS_VISION_MODEL` | Super VL model id for images. |
 | `TAVILY_API_KEY` | Tavily key. Empty = not verified, no invented result. |
-| `DEMO_MAX_UPLOAD_BYTES` | Upload cap. Default `8388608` (8 MB). |
+| `DEMO_MAX_UPLOAD_BYTES` | Prepared-request cap. Default `3145728` (3 MB), under the Vercel Hobby body limit. The picker still allows 25 MB because the browser shrinks the file first. |
 | `DEMO_MAX_PASTE_CHARS` | Pasted text cap. Default `200000`. |
 | `DEMO_RATE_LIMIT_PER_MINUTE` | Analyze requests per IP per minute. Default `6`. |
 | `DEMO_MUTATION_RATE_LIMIT_PER_MINUTE` | Confirm, reject, assumption, and reset requests per IP per minute. Default `30`. |

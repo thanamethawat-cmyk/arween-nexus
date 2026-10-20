@@ -1,3 +1,5 @@
+import { MAX_PAYLOAD_BYTES } from "./upload-limits";
+
 export const QUOTA_CODES = ["RATE_LIMIT_PER_IP", "DAILY_IP_CAP", "DAILY_CALL_CAP", "DAILY_BUDGET"] as const;
 
 export type QuotaCode = (typeof QUOTA_CODES)[number];
@@ -13,7 +15,7 @@ export type DemoLimits = {
 };
 
 const DEFAULTS: DemoLimits = {
-  maxUploadBytes: 8 * 1024 * 1024,
+  maxUploadBytes: MAX_PAYLOAD_BYTES,
   maxPasteChars: 200_000,
   analyzePerMinute: 6,
   mutationPerMinute: 30,

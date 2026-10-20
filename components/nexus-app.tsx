@@ -3,6 +3,8 @@
 import { ArrowUp, ClipboardList, History as HistoryIcon, Menu, Search, Settings as SettingsIcon, Upload, Users, Wallet, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-context";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { PrepareError, prepareUpload } from "@/lib/prepare-upload";
 import { debtServiceMinor, maxPaymentMinor } from "@/lib/engine/money";
 import { formatDscr, formatMinor, majorToMinor, minorToMajorInput } from "@/lib/engine/format";
 import { findingText, outcomeLabel, quotaText, rulePurpose, t, type Lang } from "@/lib/i18n";
@@ -19,7 +21,7 @@ type AuditRow = {
 };
 
 type View = "review" | "decisions" | "history" | "parties" | "cash" | "settings";
-type BannerError = { code?: string; fallback: string };
+type BannerError = { code?: string; fallback: string; prepare?: "fileTooBig" | "fileShrinkFail" | "fileTextTooBig" | "fileType" };
 
 function bannerFromPayload(payload: { error?: unknown; code?: unknown }, fallback: string): BannerError {
   return {
@@ -38,7 +40,7 @@ const NAV: Array<{ id: View; key: "navReview" | "navDecisions" | "navHistory" | 
   { id: "settings", key: "navSettings", icon: SettingsIcon },
 ];
 
-const CARD = "rounded-[25px] bg-white shadow-[0_8px_24px_rgba(45,96,255,0.06)]";
+const CARD = "rounded-[25px] bg-[var(--aw-card)] shadow-[0_8px_24px_rgba(45,96,255,0.06)]";
 
 const TONE: Record<DecisionView["outcome"], { badge: string; gradient: string; ring: string; button: string; slice: string }> = {
   PAY: {
@@ -52,11 +54,11 @@ const TONE: Record<DecisionView["outcome"], { badge: string; gradient: string; r
     badge: "bg-[#e7fbfa] text-[#0f9d97]",
     gradient: "bg-gradient-to-br from-[#2D60FF] to-[#16DBCC]",
     ring: "border-[#16DBCC]",
-    button: "bg-[#16DBCC] text-[#343C6A] hover:bg-[#12c4b6]",
+    button: "bg-[#16DBCC] text-[#102033] hover:bg-[#12c4b6]",
     slice: "#16DBCC",
   },
   HOLD: {
-    badge: "bg-[#eceef6] text-[#343C6A]",
+    badge: "bg-[#eceef6] text-[var(--aw-ink)]",
     gradient: "bg-gradient-to-br from-[#343C6A] to-[#1814F3]",
     ring: "border-[#343C6A]",
     button: "bg-[#343C6A] text-white hover:bg-[#1814F3]",
@@ -177,12 +179,22 @@ export function NexusApp() {
     }
   }
 
-  function onFile(file: File | undefined) {
+  async function onFile(file: File | undefined) {
     if (!file) return;
-    const form = new FormData();
-    form.set("file", file);
-    form.set("actor", actor);
-    void run(form);
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const prepared = await prepareUpload(file);
+      const form = new FormData();
+      form.set("file", prepared);
+      form.set("actor", actor);
+      await run(form);
+    } catch (err) {
+      setBusy(false);
+      if (err instanceof PrepareError) setError({ fallback: "", prepare: err.code });
+      else setError({ fallback: err instanceof Error ? err.message : "Request failed" });
+    }
   }
 
   async function saveAssumptions() {
@@ -271,8 +283,8 @@ export function NexusApp() {
               : t(lang, "navDecisions");
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F5F7FA] text-[#343C6A]">
-      <aside className="hidden h-full w-[250px] shrink-0 flex-col bg-white md:flex">
+    <div className="flex h-screen overflow-hidden bg-[var(--aw-canvas)] text-[var(--aw-ink)]">
+      <aside className="hidden h-full w-[250px] shrink-0 flex-col bg-[var(--aw-card)] md:flex">
         <Brand lang={lang} />
         <Nav lang={lang} view={view} onNavigate={go} />
       </aside>
@@ -280,7 +292,7 @@ export function NexusApp() {
       {menuOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <button className="absolute inset-0 bg-[#343C6A]/30" aria-label={t(lang, "back")} onClick={() => setMenuOpen(false)} />
-          <aside className="relative flex h-full w-[250px] flex-col bg-white">
+          <aside className="relative flex h-full w-[250px] flex-col bg-[var(--aw-card)]">
             <Brand lang={lang} />
             <Nav lang={lang} view={view} onNavigate={go} />
           </aside>
@@ -301,10 +313,10 @@ export function NexusApp() {
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-6 md:px-8">
           {error && (
             <p className="mb-4 rounded-[20px] bg-[#fff1f1] px-4 py-3 text-sm text-[#d32f2f]" role="alert" data-testid="app-error">
-              {quotaText(lang, error.code, error.fallback)}
+              {error.prepare ? t(lang, error.prepare) : quotaText(lang, error.code, error.fallback)}
             </p>
           )}
-          {notice && !showVerdict && <p className={`mb-4 px-5 py-3 text-sm text-[#718EBF] ${CARD}`}>{notice}</p>}
+          {notice && !showVerdict && <p className={`mb-4 px-5 py-3 text-sm text-[var(--aw-muted)] ${CARD}`}>{notice}</p>}
 
           {view === "review" && (
             <Review
@@ -398,8 +410,8 @@ function Brand({ lang }: { lang: Lang }) {
     <div className="flex items-center gap-3 px-7 pb-6 pt-8">
       <div className="grid size-10 place-items-center rounded-2xl bg-[#4C49ED] text-base font-semibold text-white">A</div>
       <div className="leading-tight">
-        <div className="text-xl font-semibold tracking-tight text-[#343C6A]">ARWEEN.</div>
-        <div className="text-xs text-[#718EBF]">{t(lang, "brandSub")}</div>
+        <div className="text-xl font-semibold tracking-tight text-[var(--aw-ink)]">ARWEEN.</div>
+        <div className="text-xs text-[var(--aw-muted)]">{t(lang, "brandSub")}</div>
       </div>
     </div>
   );
@@ -416,7 +428,7 @@ function Nav({ lang, view, onNavigate }: { lang: Lang; view: View; onNavigate: (
             key={item.id}
             data-testid={`nav-${item.id}`}
             onClick={() => onNavigate(item.id)}
-            className={`relative flex w-full items-center gap-4 py-3 pl-8 pr-4 text-left text-[15px] ${active ? "font-medium text-[#4C49ED]" : "text-[#B1B1B1] hover:text-[#4C49ED]"}`}
+            className={`relative flex w-full items-center gap-4 py-3 pl-8 pr-4 text-left text-[15px] ${active ? "font-medium text-[#4C49ED]" : "text-[var(--aw-faint)] hover:text-[#4C49ED]"}`}
           >
             {active && <span className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-[#4C49ED]" />}
             <Icon size={20} strokeWidth={1.75} />
@@ -442,32 +454,33 @@ function TopBar({
 }) {
   return (
     <header className="flex items-center gap-3 px-4 py-5 md:gap-6 md:px-8">
-      <button className="rounded-xl p-1 text-[#343C6A] md:hidden" onClick={onMenu} aria-label="Menu">
+      <button className="rounded-xl p-1 text-[var(--aw-ink)] md:hidden" onClick={onMenu} aria-label="Menu">
         <Menu size={22} />
       </button>
       <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#4C49ED] text-sm font-semibold text-white md:hidden">A</div>
-      <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight text-[#343C6A] md:text-[28px]">{title}</h1>
+      <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight text-[var(--aw-ink)] md:text-[28px]">{title}</h1>
       <div className="ml-auto flex items-center gap-2 md:gap-4">
         <label className="relative hidden md:block">
-          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#718EBF]" size={16} />
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--aw-muted)]" size={16} />
           <input
             value={query}
             onChange={(event) => onQuery(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Enter") onNavigate("history"); }}
             placeholder={t(lang, "search")}
-            className="h-12 w-64 rounded-full bg-white pl-11 pr-4 text-sm text-[#343C6A] shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none placeholder:text-[#8BA3CB] lg:w-80"
+            className="h-12 w-64 rounded-full bg-[var(--aw-card)] pl-11 pr-4 text-sm text-[var(--aw-ink)] shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none placeholder:text-[var(--aw-muted)] lg:w-80"
           />
         </label>
-        <button className="grid size-11 place-items-center rounded-full bg-white text-[#718EBF] shadow-[0_4px_20px_rgba(45,96,255,0.06)] md:hidden" aria-label={t(lang, "search")} onClick={() => onNavigate("history")}>
+        <button className="grid size-11 place-items-center rounded-full bg-[var(--aw-card)] text-[var(--aw-muted)] shadow-[0_4px_20px_rgba(45,96,255,0.06)] md:hidden" aria-label={t(lang, "search")} onClick={() => onNavigate("history")}>
           <Search size={18} />
         </button>
         <button
-          className={`grid size-11 place-items-center rounded-full bg-white shadow-[0_4px_20px_rgba(45,96,255,0.06)] ${view === "settings" ? "text-[#4C49ED]" : "text-[#718EBF]"}`}
+          className={`grid size-11 place-items-center rounded-full bg-[var(--aw-card)] shadow-[0_4px_20px_rgba(45,96,255,0.06)] ${view === "settings" ? "text-[#4C49ED]" : "text-[var(--aw-muted)]"}`}
           aria-label={t(lang, "navSettings")}
           onClick={() => onNavigate("settings")}
         >
           <SettingsIcon size={18} />
         </button>
+        <ThemeToggle lang={lang} />
         <LangCluster lang={lang} onLang={onLang} />
       </div>
     </header>
@@ -476,13 +489,13 @@ function TopBar({
 
 function LangCluster({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void }) {
   return (
-    <div className="flex rounded-full bg-white p-1 shadow-[0_4px_20px_rgba(45,96,255,0.06)]">
+    <div className="flex rounded-full bg-[var(--aw-card)] p-1 shadow-[0_4px_20px_rgba(45,96,255,0.06)]">
       {(["th", "en"] as const).map((code) => (
         <button
           key={code}
           data-testid={`lang-${code}`}
           onClick={() => onLang(code)}
-          className={`rounded-full px-2.5 py-1.5 text-xs ${lang === code ? "bg-[#4C49ED] font-semibold text-white" : "text-[#718EBF]"}`}
+          className={`rounded-full px-2.5 py-1.5 text-xs ${lang === code ? "bg-[#4C49ED] font-semibold text-white" : "text-[var(--aw-muted)]"}`}
         >
           {code.toUpperCase()}
         </button>
@@ -525,8 +538,8 @@ function Review({
   ];
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-sm text-[#718EBF]">{t(lang, "newReviewSub")}</p>
-      {boot?.demo.tavily && <p className="text-sm text-[#718EBF]">{t(lang, "demoTavily")}</p>}
+      <p className="text-sm text-[var(--aw-muted)]">{t(lang, "newReviewSub")}</p>
+      {boot?.demo.tavily && <p className="text-sm text-[var(--aw-muted)]">{t(lang, "demoTavily")}</p>}
       <label
         data-testid="dropzone"
         onDragOver={(event) => { event.preventDefault(); onDragOver(true); }}
@@ -536,32 +549,36 @@ function Review({
           onDragOver(false);
           onFile(event.dataTransfer.files?.[0]);
         }}
-        className={`flex h-[220px] cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed md:h-[280px] ${CARD} ${dragOver ? "border-[#4C49ED]" : "border-[#d6deee]"}`}
+        className={`flex h-[220px] cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed md:h-[280px] ${CARD} ${dragOver ? "border-[#4C49ED]" : "border-[var(--aw-line-strong)]"}`}
       >
         <span className="grid size-14 place-items-center rounded-full bg-[#eef0ff] text-[#4C49ED]"><ArrowUp size={22} /></span>
-        <span className="text-lg font-semibold text-[#343C6A]">{busy ? t(lang, "workingShort") : t(lang, "dropTitle")}</span>
-        <span className="text-sm text-[#718EBF]">{t(lang, "dropHint")}</span>
+        <span className="text-lg font-semibold text-[var(--aw-ink)]">{busy ? t(lang, "workingShort") : t(lang, "dropTitle")}</span>
+        <span className="text-sm text-[var(--aw-muted)]">{t(lang, "dropHint")}</span>
         <span className="rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white">{t(lang, "browse")}</span>
         <input
           type="file"
           className="sr-only"
           disabled={busy}
           accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.json,application/pdf,text/plain,application/json"
-          onChange={(event) => onFile(event.target.files?.[0])}
+          onChange={(event) => {
+            const chosen = event.target.files?.[0];
+            event.target.value = "";
+            onFile(chosen);
+          }}
         />
       </label>
-      <button className="self-start text-sm text-[#718EBF] underline-offset-2 hover:underline" onClick={onTogglePaste}>{t(lang, "pasteToggle")}</button>
+      <button className="self-start text-sm text-[var(--aw-muted)] underline-offset-2 hover:underline" onClick={onTogglePaste}>{t(lang, "pasteToggle")}</button>
       {showPaste && (
         <div className={`flex flex-col gap-2 p-5 ${CARD}`}>
-          <textarea className="min-h-24 rounded-2xl border border-[#e6ebf5] bg-[#F5F7FA] p-3 text-sm" value={paste} onChange={(event) => onPaste(event.target.value)} />
+          <textarea className="min-h-24 rounded-2xl border border-[var(--aw-line)] bg-[var(--aw-inset)] p-3 text-sm" value={paste} onChange={(event) => onPaste(event.target.value)} />
           <button className="self-start rounded-xl bg-[#4C49ED] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy || !paste.trim()} onClick={onRunPaste}>{t(lang, "runPaste")}</button>
         </div>
       )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map(([label, value]) => (
           <div key={label} className={`p-5 ${CARD}`}>
-            <div className="text-xs text-[#718EBF]">{label}</div>
-            <div className="mt-3 text-lg font-semibold tabular-nums text-[#343C6A]">{value}</div>
+            <div className="text-xs text-[var(--aw-muted)]">{label}</div>
+            <div className="mt-3 text-lg font-semibold tabular-nums text-[var(--aw-ink)]">{value}</div>
           </div>
         ))}
       </div>
@@ -569,7 +586,7 @@ function Review({
       <div>
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold">{t(lang, "trySample")}</h2>
-          <span className="text-[13px] text-[#71717a]">{t(lang, "sampleNote")}</span>
+          <span className="text-[13px] text-[var(--aw-muted)]">{t(lang, "sampleNote")}</span>
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {samples.map((sample) => {
@@ -580,14 +597,14 @@ function Review({
                   <h3 className="text-[15px] font-semibold">{lang === "th" ? `เคส ${sample.id}` : `Case ${sample.id}`}</h3>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE[sample.outcome].badge}`}>{sample.outcome}</span>
                 </div>
-                <p className="text-[13px] text-[#718EBF]">{invoice.invoiceNumber} · {invoice.supplierLegalName}</p>
-                <p className="text-xl font-semibold tabular-nums text-[#343C6A]">{formatMinor(invoice.totalMinor, invoice.currency)}</p>
-                <p className="text-xs text-[#718EBF]">{t(lang, sample.blurb)}</p>
+                <p className="text-[13px] text-[var(--aw-muted)]">{invoice.invoiceNumber} · {invoice.supplierLegalName}</p>
+                <p className="text-xl font-semibold tabular-nums text-[var(--aw-ink)]">{formatMinor(invoice.totalMinor, invoice.currency)}</p>
+                <p className="text-xs text-[var(--aw-muted)]">{t(lang, sample.blurb)}</p>
                 <button
                   data-testid={`sample-${sample.id}`}
                   disabled={busy}
                   onClick={() => onSample(sample.id)}
-                  className="mt-auto w-full rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#4C49ED] disabled:opacity-50"
+                  className="mt-auto w-full rounded-xl border border-[var(--aw-line-strong)] bg-[var(--aw-card)] px-4 py-2.5 text-sm font-semibold text-[#4C49ED] disabled:opacity-50"
                 >
                   {t(lang, "runSample")} {sample.id}
                 </button>
@@ -601,14 +618,14 @@ function Review({
 }
 
 function DecisionList({ lang, items, onOpen }: { lang: Lang; items: DecisionListItem[]; onOpen: (id: string) => void }) {
-  if (items.length === 0) return <p className="text-sm text-[#71717a]">{t(lang, "historyEmpty")}</p>;
+  if (items.length === 0) return <p className="text-sm text-[var(--aw-muted)]">{t(lang, "historyEmpty")}</p>;
   return (
     <div className="grid gap-3">
       {items.map((item) => (
         <button key={item.decisionId} onClick={() => onOpen(item.decisionId)} className={`flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-left ${CARD}`}>
           <div>
-            <div className="font-semibold text-[#343C6A]">{item.invoiceNumber} · {item.supplierLegalName}</div>
-            <div className="mt-1 text-sm text-[#718EBF]">{formatWhen(item.createdAt, lang)} · {item.winningRuleId}</div>
+            <div className="font-semibold text-[var(--aw-ink)]">{item.invoiceNumber} · {item.supplierLegalName}</div>
+            <div className="mt-1 text-sm text-[var(--aw-muted)]">{formatWhen(item.createdAt, lang)} · {item.winningRuleId}</div>
           </div>
           <div className="flex items-center gap-3">
             <span className="tabular-nums text-sm font-semibold">{formatMinor(BigInt(item.totalMinor), item.currency)}</span>
@@ -641,9 +658,9 @@ function Verdict({
   return (
     <div data-testid="verdict">
       <div className="mb-4 flex items-center justify-between md:hidden">
-        <button data-testid="mobile-back" className="text-sm font-medium text-[#343C6A]" onClick={onBack}>← {decision.invoice.invoiceNumber}</button>
+        <button data-testid="mobile-back" className="text-sm font-medium text-[var(--aw-ink)]" onClick={onBack}>← {decision.invoice.invoiceNumber}</button>
       </div>
-      <p className="mb-4 text-sm text-[#718EBF]">
+      <p className="mb-4 text-sm text-[var(--aw-muted)]">
         {decision.invoice.supplierLegalName} · {t(lang, "uploaded")} {formatWhen(decision.createdAt, lang)} (UTC+7) · {t(lang, "decisionWord")} {shortId(decision.decisionId)} · {t(lang, "statusWord")}: {statusWord(lang, decision.status)}
       </p>
 
@@ -676,14 +693,14 @@ function Verdict({
         <div className={`px-4 py-3 text-sm ${CARD}`}>
           <button className="flex w-full items-center justify-between py-1" onClick={onToggleRules}>
             <span>{t(lang, "ruleChecks")}</span>
-            <span className="text-[#718EBF]">{passCount} {t(lang, "pass").toLowerCase()} · {failCount} {t(lang, "fail").toLowerCase()} ›</span>
+            <span className="text-[var(--aw-muted)]">{passCount} {t(lang, "pass").toLowerCase()} · {failCount} {t(lang, "fail").toLowerCase()} ›</span>
           </button>
           <button className="flex w-full items-center justify-between py-1" onClick={onToggleEvidence}>
             <span>{t(lang, "evidenceSources")}</span>
-            <span className="text-[#718EBF]">{sourceCountLabel(lang, decision)} ›</span>
+            <span className="text-[var(--aw-muted)]">{sourceCountLabel(lang, decision)} ›</span>
           </button>
           {(rulesOpen || evidenceOpen) && (
-            <div className="mt-3 border-t border-[#e4e4e7] pt-3">
+            <div className="mt-3 border-t border-[var(--aw-line)] pt-3">
               {rulesOpen && <RuleList lang={lang} decision={decision} />}
               {evidenceOpen && <EvidenceBlock lang={lang} decision={decision} />}
             </div>
@@ -696,7 +713,7 @@ function Verdict({
         <div className={`p-5 ${CARD}`}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold">{t(lang, "extracted")}</h3>
-            <span className="text-xs text-[#718EBF]">{modelShort(extractModel(decision))} · {t(lang, "confidence").toLowerCase()} {(decision.invoice.confidenceBps / 100).toFixed(1)}%</span>
+            <span className="text-xs text-[var(--aw-muted)]">{modelShort(extractModel(decision))} · {t(lang, "confidence").toLowerCase()} {(decision.invoice.confidenceBps / 100).toFixed(1)}%</span>
           </div>
           <Field label={t(lang, "supplier")} value={decision.invoice.supplierLegalName} />
           <Field label={t(lang, "taxId")} value={decision.invoice.supplierTaxId ?? "—"} />
@@ -705,7 +722,7 @@ function Verdict({
           <RuleList lang={lang} decision={decision} />
           <h3 className="mb-2 mt-4 text-sm font-semibold">{t(lang, "sources")} ({sourceName(decision)})</h3>
           <EvidenceBlock lang={lang} decision={decision} />
-          <p className="mt-4 text-xs leading-5 text-[#718EBF]">{lang === "th" ? decision.explanationTh : decision.explanationEn}</p>
+          <p className="mt-4 text-xs leading-5 text-[var(--aw-muted)]">{lang === "th" ? decision.explanationTh : decision.explanationEn}</p>
         </div>
       </div>
       {paid && <p className="sr-only">DSCR {paid.dscrMicros ? formatDscr(BigInt(paid.dscrMicros)) : ""}</p>}
@@ -729,11 +746,11 @@ function ScenarioCard({
         <h3 className="text-sm font-semibold">{title}</h3>
         {recommended && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone.badge}`}>{t(lang, "recommended")}</span>}
       </div>
-      <p className="mt-3 text-sm text-[#718EBF]">{t(lang, "paymentLabel")} {formatMinor(BigInt(scenario.decisionPaymentMinor), currency)}</p>
-      <p className="mt-3 text-xs text-[#718EBF]">{t(lang, "cashAfter")}</p>
-      <p className="text-xl font-semibold tabular-nums text-[#343C6A]">{formatMinor(BigInt(scenario.cashAvailableMinor), currency)}</p>
+      <p className="mt-3 text-sm text-[var(--aw-muted)]">{t(lang, "paymentLabel")} {formatMinor(BigInt(scenario.decisionPaymentMinor), currency)}</p>
+      <p className="mt-3 text-xs text-[var(--aw-muted)]">{t(lang, "cashAfter")}</p>
+      <p className="text-xl font-semibold tabular-nums text-[var(--aw-ink)]">{formatMinor(BigInt(scenario.cashAvailableMinor), currency)}</p>
       <div className="mt-4 flex items-center justify-between">
-        <span className="text-sm text-[#718EBF]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"} {t(lang, "vsThreshold")}</span>
+        <span className="text-sm text-[var(--aw-muted)]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"} {t(lang, "vsThreshold")}</span>
         <PassFail lang={lang} pass={scenario.passesDscr} />
       </div>
     </article>
@@ -762,7 +779,7 @@ function MobileScenario({
       </div>
       <div className="mt-2 flex items-end justify-between">
         <span className="text-lg font-semibold tabular-nums">{formatMinor(BigInt(scenario.cashAvailableMinor), currency)}</span>
-        <span className="text-sm text-[#718EBF]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"}</span>
+        <span className="text-sm text-[var(--aw-muted)]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"}</span>
       </div>
     </article>
   );
@@ -773,12 +790,12 @@ function InvoicePaper({ lang, decision }: { lang: Lang; decision: DecisionView }
   const rate = (decision.invoice.vatRateBps / 100).toString();
   return (
     <section className={`p-5 ${CARD}`}>
-      <h3 className="mb-3 text-sm font-semibold text-[#343C6A]">{t(lang, "invoiceDoc")}</h3>
-      <div className="rounded-2xl bg-[#F5F7FA] p-6 text-sm">
+      <h3 className="mb-3 text-sm font-semibold text-[var(--aw-ink)]">{t(lang, "invoiceDoc")}</h3>
+      <div className="rounded-2xl bg-[var(--aw-inset)] p-6 text-sm">
         <p className="font-semibold uppercase">{decision.invoice.supplierLegalName}</p>
-        <p className="mt-1 text-xs text-[#718EBF]">{t(lang, "taxId")} {decision.invoice.supplierTaxId ?? "—"}</p>
+        <p className="mt-1 text-xs text-[var(--aw-muted)]">{t(lang, "taxId")} {decision.invoice.supplierTaxId ?? "—"}</p>
         <p className="mt-3 font-semibold">TAX INVOICE {decision.invoice.invoiceNumber}</p>
-        <p className="mt-1 text-xs text-[#718EBF]">{t(lang, "issue")} {decision.invoice.issueDate} · {t(lang, "due")} {decision.invoice.dueDate}</p>
+        <p className="mt-1 text-xs text-[var(--aw-muted)]">{t(lang, "issue")} {decision.invoice.issueDate} · {t(lang, "due")} {decision.invoice.dueDate}</p>
         <div className="mt-4 space-y-2">
           {decision.invoice.lines.map((line) => (
             <div key={line.lineNo} className="flex justify-between gap-3">
@@ -787,7 +804,7 @@ function InvoicePaper({ lang, decision }: { lang: Lang; decision: DecisionView }
             </div>
           ))}
         </div>
-        <div className="mt-4 space-y-2 border-t border-[#e4e4e7] pt-3">
+        <div className="mt-4 space-y-2 border-t border-[var(--aw-line)] pt-3">
           <div className="flex justify-between"><span>{t(lang, "subtotal")}</span><span className="tabular-nums">{moneyOnly(decision.invoice.subtotalMinor)}</span></div>
           <div className="flex justify-between"><span>{t(lang, "vat")} {rate}%</span><span className="tabular-nums">{moneyOnly(decision.invoice.vatMinor)}</span></div>
           <div className="flex justify-between font-semibold"><span>{t(lang, "total")} ({currency})</span><span className="tabular-nums">{moneyOnly(decision.invoice.totalMinor)}</span></div>
@@ -804,7 +821,7 @@ function RuleList({ lang, decision }: { lang: Lang; decision: DecisionView }) {
         <div key={finding.ruleId} className="flex items-center justify-between gap-3 py-1">
           <div>
             <div className="text-xs font-semibold">{finding.ruleId}</div>
-            <div className="text-xs text-[#718EBF]">
+            <div className="text-xs text-[var(--aw-muted)]">
               {finding.detailKey === "not_verified" ? findingText(lang, finding.detailKey, finding.params) : rulePurpose(lang, finding.ruleId)}
             </div>
           </div>
@@ -817,7 +834,7 @@ function RuleList({ lang, decision }: { lang: Lang; decision: DecisionView }) {
 
 function EvidenceBlock({ lang, decision }: { lang: Lang; decision: DecisionView }) {
   if (decision.retrieval?.provider === "not_verified" || decision.evidence.length === 0) {
-    return <p className="text-xs text-[#718EBF]">{decision.retrieval?.provider === "not_verified" ? t(lang, "taxNotVerified") : t(lang, "noSources")}</p>;
+    return <p className="text-xs text-[var(--aw-muted)]">{decision.retrieval?.provider === "not_verified" ? t(lang, "taxNotVerified") : t(lang, "noSources")}</p>;
   }
   return (
     <div className="space-y-1">
@@ -852,12 +869,12 @@ function ActionBar({
         : decision.outcome === "HOLD" ? t(lang, "confirmHold")
           : t(lang, "recordInsufficient");
   return (
-    <div className="bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(45,96,255,0.06)] md:px-8">
+    <div className="bg-[var(--aw-card)] px-4 py-3 shadow-[0_-8px_24px_rgba(45,96,255,0.06)] md:px-8">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <p className={`text-sm text-[#718EBF] ${notice ? "" : "hidden md:block"}`}>{notice ?? t(lang, "proposeNote")}</p>
+        <p className={`text-sm text-[var(--aw-muted)] ${notice ? "" : "hidden md:block"}`}>{notice ?? t(lang, "proposeNote")}</p>
         <button data-testid="approve" disabled={locked} onClick={onConfirm} className={`order-first w-full rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50 md:order-last md:w-auto ${tone.button}`}>{approve}</button>
         <div className="grid grid-cols-2 gap-2 md:flex">
-          <button data-testid="reject" disabled={locked} onClick={onReject} className="rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#343C6A] disabled:opacity-50">{t(lang, "reject")}</button>
+          <button data-testid="reject" disabled={locked} onClick={onReject} className="rounded-xl border border-[var(--aw-line-strong)] bg-[var(--aw-card)] px-4 py-2.5 text-sm font-semibold text-[var(--aw-ink)] disabled:opacity-50">{t(lang, "reject")}</button>
           <button data-testid="hold" disabled={busy || decision.status !== "proposed"} onClick={onHold} className="rounded-xl bg-[#343C6A] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{t(lang, "hold")}</button>
         </div>
       </div>
@@ -940,9 +957,9 @@ function History({
 
   return (
     <div data-testid="history">
-      <p className="mb-4 text-sm text-[#718EBF]">{t(lang, "historySub")}</p>
+      <p className="mb-4 text-sm text-[var(--aw-muted)]">{t(lang, "historySub")}</p>
       <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:flex-wrap">
-        <input data-testid="history-search" value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(lang, "search")} className="h-12 w-full rounded-full bg-white px-4 text-sm shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none lg:w-80" />
+        <input data-testid="history-search" value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(lang, "search")} className="h-12 w-full rounded-full bg-[var(--aw-card)] px-4 text-sm shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none lg:w-80" />
         <Select value={outcome} onChange={setOutcome} label={t(lang, "outcomeAll")} options={[["all", t(lang, "outcomeAll")], ["PAY", "PAY"], ["PARTIAL", "PARTIAL"], ["HOLD", "HOLD"], ["INSUFFICIENT", "INSUFFICIENT"]]} />
         <Select value={status} onChange={setStatus} label={t(lang, "statusAll")} options={[["all", t(lang, "statusAll")], ["proposed", t(lang, "statusProposed")], ["confirmed", t(lang, "statusConfirmed")], ["rejected", t(lang, "statusRejected")]]} />
         <Select value={range} onChange={setRange} label={t(lang, "date7")} options={[["7", t(lang, "date7")], ["30", t(lang, "date30")], ["all", t(lang, "dateAll")]]} />
@@ -951,14 +968,14 @@ function History({
       </div>
       <div className="mb-3 flex flex-wrap gap-2 text-xs font-semibold">
         {(["all", "PAY", "PARTIAL", "HOLD", "INSUFFICIENT"] as const).map((key) => (
-          <button key={key} onClick={() => setOutcome(key === "all" ? "all" : key)} className={`rounded-full px-3 py-1 ${outcome === key || (key === "all" && outcome === "all") ? "bg-[#4C49ED] text-white" : "bg-white text-[#718EBF]"}`}>
+          <button key={key} onClick={() => setOutcome(key === "all" ? "all" : key)} className={`rounded-full px-3 py-1 ${outcome === key || (key === "all" && outcome === "all") ? "bg-[#4C49ED] text-white" : "bg-[var(--aw-card)] text-[var(--aw-muted)]"}`}>
             {key === "all" ? `${lang === "th" ? "ทั้งหมด" : "All"} ${counts.all}` : `${key} ${counts[key]}`}
           </button>
         ))}
       </div>
       <div className={`overflow-x-auto ${CARD}`}>
         <table className="w-full min-w-[860px] text-left text-sm">
-          <thead className="text-xs uppercase tracking-wide text-[#718EBF]">
+          <thead className="text-xs uppercase tracking-wide text-[var(--aw-muted)]">
             <tr>
               {[t(lang, "colTime"), t(lang, "colInvoice"), t(lang, "colSupplier"), t(lang, "colTotal"), t(lang, "colOutcome"), t(lang, "colRule"), t(lang, "colStatus"), t(lang, "colBy")].map((heading) => (
                 <th key={heading} className="px-5 py-4 font-medium">{heading}</th>
@@ -966,15 +983,15 @@ function History({
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && <tr><td colSpan={8} className="px-5 py-6 text-[#718EBF]">{t(lang, "noMatch")}</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={8} className="px-5 py-6 text-[var(--aw-muted)]">{t(lang, "noMatch")}</td></tr>}
             {filtered.map((item) => (
-              <tr key={item.decisionId} data-testid={`row-${item.invoiceNumber}`} onClick={() => setSelected(item.decisionId)} className={`cursor-pointer border-t border-[#F5F7FA] ${active?.decisionId === item.decisionId ? "bg-[#F5F7FA]" : "hover:bg-[#fbfcff]"}`}>
-                <td className="px-5 py-4 whitespace-nowrap text-[#718EBF]">{formatWhen(item.createdAt, lang)}</td>
-                <td className="px-5 py-4"><button className="font-medium text-[#343C6A] underline-offset-2 hover:underline" onClick={(event) => { event.stopPropagation(); onOpen(item.decisionId); }}>{item.invoiceNumber}</button></td>
+              <tr key={item.decisionId} data-testid={`row-${item.invoiceNumber}`} onClick={() => setSelected(item.decisionId)} className={`cursor-pointer border-t border-[var(--aw-line)] ${active?.decisionId === item.decisionId ? "bg-[var(--aw-inset)]" : "hover:bg-[var(--aw-hover)]"}`}>
+                <td className="px-5 py-4 whitespace-nowrap text-[var(--aw-muted)]">{formatWhen(item.createdAt, lang)}</td>
+                <td className="px-5 py-4"><button className="font-medium text-[var(--aw-ink)] underline-offset-2 hover:underline" onClick={(event) => { event.stopPropagation(); onOpen(item.decisionId); }}>{item.invoiceNumber}</button></td>
                 <td className="px-5 py-4">{item.supplierLegalName}</td>
                 <td className="px-5 py-4 tabular-nums">{moneyOnly(item.totalMinor)}</td>
                 <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE[item.outcome].badge}`}>{item.outcome}</span></td>
-                <td className="px-5 py-4 text-[#718EBF]">{item.winningRuleId}</td>
+                <td className="px-5 py-4 text-[var(--aw-muted)]">{item.winningRuleId}</td>
                 <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}>{statusWord(lang, item.status)}</span></td>
                 <td className="px-5 py-4">{item.status === "proposed" ? "—" : item.actor || "—"}</td>
               </tr>
@@ -984,8 +1001,8 @@ function History({
       </div>
       {active && (
         <section className={`mt-4 p-5 ${CARD}`}>
-          <h3 className="text-sm font-semibold text-[#343C6A]">{t(lang, "auditTrail")} — {shortId(active.decisionId)} ({active.invoiceNumber})</h3>
-          <ul className="mt-3 space-y-2 text-xs text-[#343C6A]">
+          <h3 className="text-sm font-semibold text-[var(--aw-ink)]">{t(lang, "auditTrail")} — {shortId(active.decisionId)} ({active.invoiceNumber})</h3>
+          <ul className="mt-3 space-y-2 text-xs text-[var(--aw-ink)]">
             <li>{formatClock(active.createdAt)} · {active.outcome} · {active.winningRuleId} · {formatMinor(BigInt(active.totalMinor), active.currency)}</li>
             {detail?.decisionId === active.decisionId && detail.models.map((model) => (
               <li key={`${model.purpose}-${model.modelId}`}>
@@ -1002,7 +1019,7 @@ function History({
             {trail.map((row) => (
               <li key={row.auditId}>{formatClock(row.createdAt)} · {row.action} · {row.actor} · {row.detail}</li>
             ))}
-            {trail.length === 0 && <li className="text-[#718EBF]">{t(lang, "auditEmpty")}</li>}
+            {trail.length === 0 && <li className="text-[var(--aw-muted)]">{t(lang, "auditEmpty")}</li>}
           </ul>
         </section>
       )}
@@ -1014,15 +1031,15 @@ function Parties({ lang, items }: { lang: Lang; items: DecisionListItem[] }) {
   const groups = new Map<string, number>();
   for (const item of items) groups.set(item.supplierLegalName, (groups.get(item.supplierLegalName) ?? 0) + 1);
   const rows = Array.from(groups.entries());
-  if (rows.length === 0) return <div><p className="mb-3 text-sm text-[#718EBF]">{t(lang, "partiesSub")}</p><p className="text-sm text-[#718EBF]">{t(lang, "partiesEmpty")}</p></div>;
+  if (rows.length === 0) return <div><p className="mb-3 text-sm text-[var(--aw-muted)]">{t(lang, "partiesSub")}</p><p className="text-sm text-[var(--aw-muted)]">{t(lang, "partiesEmpty")}</p></div>;
   return (
     <div>
-      <p className="mb-4 text-sm text-[#718EBF]">{t(lang, "partiesSub")}</p>
+      <p className="mb-4 text-sm text-[var(--aw-muted)]">{t(lang, "partiesSub")}</p>
       <div className="grid gap-4 sm:grid-cols-2">
       {rows.map(([name, count]) => (
         <article key={name} className={`p-5 ${CARD}`}>
-          <h3 className="font-semibold text-[#343C6A]">{name}</h3>
-          <p className="mt-1 text-sm text-[#718EBF]">{count} {t(lang, "invoices")}</p>
+          <h3 className="font-semibold text-[var(--aw-ink)]">{name}</h3>
+          <p className="mt-1 text-sm text-[var(--aw-muted)]">{count} {t(lang, "invoices")}</p>
         </article>
       ))}
       </div>
@@ -1055,19 +1072,19 @@ function Cash({
   ] as const;
   return (
     <div className="max-w-3xl">
-      <p className="mb-4 text-sm text-[#718EBF]">{t(lang, "cashSub")}</p>
+      <p className="mb-4 text-sm text-[var(--aw-muted)]">{t(lang, "cashSub")}</p>
       <div className={`grid gap-3 p-5 sm:grid-cols-2 ${CARD}`}>
         {fields.map(([label, value, onChange]) => (
-          <label key={label} className="text-xs text-[#718EBF]">
+          <label key={label} className="text-xs text-[var(--aw-muted)]">
             {label}
-            <input value={value} onChange={(event) => onChange(event.target.value)} inputMode="decimal" className="mt-1 h-11 w-full rounded-xl border border-[#e6ebf5] bg-[#F5F7FA] px-3 text-sm text-[#343C6A] outline-none" />
+            <input value={value} onChange={(event) => onChange(event.target.value)} inputMode="decimal" className="mt-1 h-11 w-full rounded-xl border border-[var(--aw-line)] bg-[var(--aw-inset)] px-3 text-sm text-[var(--aw-ink)] outline-none" />
           </label>
         ))}
       </div>
       {preview && (
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className={`p-5 text-sm ${CARD}`}><span className="text-[#718EBF]">{t(lang, "debtService")}</span><div className="mt-1 font-semibold tabular-nums text-[#343C6A]">{formatMinor(preview.debt, currency)}</div></div>
-          <div className={`p-5 text-sm ${CARD}`}><span className="text-[#718EBF]">{t(lang, "maxPay")}</span><div className="mt-1 font-semibold tabular-nums text-[#343C6A]">{formatMinor(preview.max, currency)}</div></div>
+          <div className={`p-5 text-sm ${CARD}`}><span className="text-[var(--aw-muted)]">{t(lang, "debtService")}</span><div className="mt-1 font-semibold tabular-nums text-[var(--aw-ink)]">{formatMinor(preview.debt, currency)}</div></div>
+          <div className={`p-5 text-sm ${CARD}`}><span className="text-[var(--aw-muted)]">{t(lang, "maxPay")}</span><div className="mt-1 font-semibold tabular-nums text-[var(--aw-ink)]">{formatMinor(preview.max, currency)}</div></div>
         </div>
       )}
       <button disabled={busy} onClick={onSave} className="mt-4 rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{t(lang, "saveAssumptions")}</button>
@@ -1095,42 +1112,42 @@ function Settings({
         : `Signed in as ${auth.session.name} (${auth.session.email}). This account is fictional.`);
   return (
     <div className="max-w-2xl space-y-4">
-      <p className="text-sm text-[#718EBF]">{t(lang, "settingsSub")}</p>
+      <p className="text-sm text-[var(--aw-muted)]">{t(lang, "settingsSub")}</p>
       {auth && (
         <div className={`space-y-3 p-5 text-sm ${CARD}`}>
-          <h3 className="font-semibold text-[#343C6A]">{lang === "th" ? "เซสชันจำลอง" : "Simulated session"}</h3>
-          <p className="text-[#718EBF]">{sessionLabel}</p>
+          <h3 className="font-semibold text-[var(--aw-ink)]">{lang === "th" ? "เซสชันจำลอง" : "Simulated session"}</h3>
+          <p className="text-[var(--aw-muted)]">{sessionLabel}</p>
           {auth.session.kind === "user" && auth.session.consentAt && (
-            <p className="text-[#718EBF]">{lang === "th" ? "บันทึกความยินยอมเมื่อ" : "Consent stored at"} {auth.session.consentAt}</p>
+            <p className="text-[var(--aw-muted)]">{lang === "th" ? "บันทึกความยินยอมเมื่อ" : "Consent stored at"} {auth.session.consentAt}</p>
           )}
-          <button type="button" data-testid="auth-signout" onClick={auth.signOut} className="rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#343C6A]">
+          <button type="button" data-testid="auth-signout" onClick={auth.signOut} className="rounded-xl border border-[var(--aw-line-strong)] bg-[var(--aw-card)] px-4 py-2.5 text-sm font-semibold text-[var(--aw-ink)]">
             {auth.session.kind === "guest" ? (lang === "th" ? "ออกจากโหมดเดโม" : "Leave demo mode") : (lang === "th" ? "ออกจากระบบ" : "Sign out")}
           </button>
         </div>
       )}
-      <label className={`block p-5 text-xs text-[#718EBF] ${CARD}`}>
+      <label className={`block p-5 text-xs text-[var(--aw-muted)] ${CARD}`}>
         {t(lang, "actor")}
-        <input value={actor} onChange={(event) => onActor(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-[#e6ebf5] bg-[#F5F7FA] px-3 text-sm text-[#343C6A] outline-none" />
+        <input value={actor} onChange={(event) => onActor(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-[var(--aw-line)] bg-[var(--aw-inset)] px-3 text-sm text-[var(--aw-ink)] outline-none" />
       </label>
       {boot && (
         <div className={`p-5 text-sm ${CARD}`}>
-          <h3 className="font-semibold text-[#343C6A]">{t(lang, "modelsLive")}</h3>
-          <p className="mt-2 text-[#718EBF]">extract · {boot.models.extract}</p>
-          <p className="text-[#718EBF]">explain · {boot.models.explain}</p>
-          <p className="text-[#718EBF]">vision · {boot.models.vision}</p>
-          <p className="text-[#718EBF]">{boot.models.baseUrl}</p>
-          <p className="mt-3 text-[#343C6A]">{boot.demo.nebius ? t(lang, "demoNebius") : t(lang, "liveNote")}</p>
-          {boot.demo.tavily && <p className="mt-2 text-[#343C6A]">{t(lang, "demoTavily")}</p>}
+          <h3 className="font-semibold text-[var(--aw-ink)]">{t(lang, "modelsLive")}</h3>
+          <p className="mt-2 text-[var(--aw-muted)]">extract · {boot.models.extract}</p>
+          <p className="text-[var(--aw-muted)]">explain · {boot.models.explain}</p>
+          <p className="text-[var(--aw-muted)]">vision · {boot.models.vision}</p>
+          <p className="text-[var(--aw-muted)]">{boot.models.baseUrl}</p>
+          <p className="mt-3 text-[var(--aw-ink)]">{boot.demo.nebius ? t(lang, "demoNebius") : t(lang, "liveNote")}</p>
+          {boot.demo.tavily && <p className="mt-2 text-[var(--aw-ink)]">{t(lang, "demoTavily")}</p>}
         </div>
       )}
-      <button disabled={busy} onClick={onReset} className="rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#343C6A]">{t(lang, "reset")}</button>
+      <button disabled={busy} onClick={onReset} className="rounded-xl border border-[var(--aw-line-strong)] bg-[var(--aw-card)] px-4 py-2.5 text-sm font-semibold text-[var(--aw-ink)]">{t(lang, "reset")}</button>
     </div>
   );
 }
 
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; label: string; options: Array<[string, string]> }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="h-12 rounded-full bg-white px-4 text-sm text-[#343C6A] shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none">
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="h-12 rounded-full bg-[var(--aw-card)] px-4 text-sm text-[var(--aw-ink)] shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none">
       {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
     </select>
   );
@@ -1139,7 +1156,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (value:
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1 text-sm">
-      <span className="text-[#718EBF]">{label}</span>
+      <span className="text-[var(--aw-muted)]">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>
   );
@@ -1165,7 +1182,7 @@ function StatusPill({ lang, finding }: { lang: Lang; finding: DecisionView["find
   if (finding.severity === "warn") {
     return <span className="rounded-full bg-[#fffbeb] px-2.5 py-1 text-xs font-semibold text-[#d97706]">{t(lang, "warnLabel")}</span>;
   }
-  return <span className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-xs font-semibold text-[#71717a]">{finding.status}</span>;
+  return <span className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-xs font-semibold text-[var(--aw-muted)]">{finding.status}</span>;
 }
 
 function OutcomeMix({ lang, items }: { lang: Lang; items: DecisionListItem[] }) {
@@ -1183,11 +1200,11 @@ function OutcomeMix({ lang, items }: { lang: Lang; items: DecisionListItem[] }) 
   const pie = total === 0 ? "conic-gradient(#E6EBF5 0% 100%)" : `conic-gradient(${stops.join(", ")})`;
   return (
     <section className={`p-5 ${CARD}`}>
-      <h2 className="text-base font-semibold text-[#343C6A]">{t(lang, "historyTitle")}</h2>
-      <p className="mt-1 text-xs text-[#718EBF]">{total === 0 ? t(lang, "historyEmpty") : `${total}`}</p>
+      <h2 className="text-base font-semibold text-[var(--aw-ink)]">{t(lang, "historyTitle")}</h2>
+      <p className="mt-1 text-xs text-[var(--aw-muted)]">{total === 0 ? t(lang, "historyEmpty") : `${total}`}</p>
       <div className="mt-5 flex flex-col items-center gap-6 sm:flex-row sm:items-end">
         <div className="grid size-36 place-items-center rounded-full" style={{ background: pie }} aria-hidden="true">
-          <div className="grid size-20 place-items-center rounded-full bg-white text-lg font-semibold text-[#343C6A]">{total}</div>
+          <div className="grid size-20 place-items-center rounded-full bg-[var(--aw-card)] text-lg font-semibold text-[var(--aw-ink)]">{total}</div>
         </div>
         <div className="flex w-full flex-1 items-end gap-3">
           {keys.map((key) => (
@@ -1195,8 +1212,8 @@ function OutcomeMix({ lang, items }: { lang: Lang; items: DecisionListItem[] }) 
               <div className="flex h-28 w-full items-end">
                 <div className="w-full rounded-t-xl" style={{ height: `${total === 0 ? 0 : Math.round((counts[key] / max) * 100)}%`, background: TONE[key].slice }} />
               </div>
-              <span className="text-[11px] font-medium text-[#718EBF]">{key}</span>
-              <span className="text-sm font-semibold text-[#343C6A]">{counts[key]}</span>
+              <span className="text-[11px] font-medium text-[var(--aw-muted)]">{key}</span>
+              <span className="text-sm font-semibold text-[var(--aw-ink)]">{counts[key]}</span>
             </div>
           ))}
         </div>
