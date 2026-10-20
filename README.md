@@ -6,6 +6,8 @@ ARWEEN-Nexus is an evidence and liquidity guardrail for a small business. It rea
 
 Hosted on Vercel Hobby with Neon Free Postgres. Invoice extraction and Thai/English explanations run on [Nebius Token Factory](https://tokenfactory.nebius.com) with NVIDIA Nemotron. No login is required. The demo is free for judges through the end of the judging period.
 
+UI style inspired by BankDash Dashboard UI Kit (Figma Community).
+
 | Outcome | Meaning |
 | --- | --- |
 | `PAY` | Pay the invoice in full. Coverage stays at or above 1.25. |

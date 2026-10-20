@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Menu } from "lucide-react";
+import { ArrowUp, ClipboardList, History as HistoryIcon, Menu, Search, Settings as SettingsIcon, Upload, Users, Wallet, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { debtServiceMinor, maxPaymentMinor } from "@/lib/engine/money";
 import { formatDscr, formatMinor, majorToMinor, minorToMajorInput } from "@/lib/engine/format";
@@ -28,43 +28,45 @@ function bannerFromPayload(payload: { error?: unknown; code?: unknown }, fallbac
 }
 type SampleId = "A" | "B" | "C";
 
-const NAV: Array<{ id: View; key: "navReview" | "navDecisions" | "navHistory" | "navParties" | "navCash" | "navSettings" }> = [
-  { id: "review", key: "navReview" },
-  { id: "decisions", key: "navDecisions" },
-  { id: "history", key: "navHistory" },
-  { id: "parties", key: "navParties" },
-  { id: "cash", key: "navCash" },
-  { id: "settings", key: "navSettings" },
+const NAV: Array<{ id: View; key: "navReview" | "navDecisions" | "navHistory" | "navParties" | "navCash" | "navSettings"; icon: LucideIcon }> = [
+  { id: "review", key: "navReview", icon: Upload },
+  { id: "decisions", key: "navDecisions", icon: ClipboardList },
+  { id: "history", key: "navHistory", icon: HistoryIcon },
+  { id: "parties", key: "navParties", icon: Users },
+  { id: "cash", key: "navCash", icon: Wallet },
+  { id: "settings", key: "navSettings", icon: SettingsIcon },
 ];
 
-const TONE: Record<DecisionView["outcome"], { badge: string; banner: string; ring: string; button: string; icon: string }> = {
+const CARD = "rounded-[25px] bg-white shadow-[0_8px_24px_rgba(45,96,255,0.06)]";
+
+const TONE: Record<DecisionView["outcome"], { badge: string; gradient: string; ring: string; button: string; slice: string }> = {
   PAY: {
-    badge: "bg-[#f0fdf4] text-[#16a34a]",
-    banner: "border-[#bbf7d0] bg-[#f0fdf4] text-[#166534]",
-    ring: "border-[#16a34a]",
-    button: "bg-[#16a34a] text-white hover:bg-[#15803d]",
-    icon: "bg-[#dcfce7] text-[#166534]",
+    badge: "bg-[#eef0ff] text-[#4C49ED]",
+    gradient: "bg-gradient-to-br from-[#4C49ED] to-[#2D60FF]",
+    ring: "border-[#4C49ED]",
+    button: "bg-[#4C49ED] text-white hover:bg-[#2D60FF]",
+    slice: "#4C49ED",
   },
   PARTIAL: {
-    badge: "bg-[#fffbeb] text-[#d97706]",
-    banner: "border-[#fde68a] bg-[#fffbeb] text-[#b45309]",
-    ring: "border-[#f97316]",
-    button: "bg-[#ea580c] text-white hover:bg-[#c2410c]",
-    icon: "bg-[#ffedd5] text-[#c2410c]",
+    badge: "bg-[#e7fbfa] text-[#0f9d97]",
+    gradient: "bg-gradient-to-br from-[#2D60FF] to-[#16DBCC]",
+    ring: "border-[#16DBCC]",
+    button: "bg-[#16DBCC] text-[#343C6A] hover:bg-[#12c4b6]",
+    slice: "#16DBCC",
   },
   HOLD: {
-    badge: "bg-[#fef2f2] text-[#dc2626]",
-    banner: "border-[#fecaca] bg-[#fef2f2] text-[#b91c1c]",
-    ring: "border-[#dc2626]",
-    button: "bg-[#dc2626] text-white hover:bg-[#b91c1c]",
-    icon: "bg-[#fee2e2] text-[#b91c1c]",
+    badge: "bg-[#eceef6] text-[#343C6A]",
+    gradient: "bg-gradient-to-br from-[#343C6A] to-[#1814F3]",
+    ring: "border-[#343C6A]",
+    button: "bg-[#343C6A] text-white hover:bg-[#1814F3]",
+    slice: "#343C6A",
   },
   INSUFFICIENT: {
-    badge: "bg-[#f5f3ff] text-[#7c3aed]",
-    banner: "border-[#ddd6fe] bg-[#f5f3ff] text-[#6d28d9]",
-    ring: "border-[#7c3aed]",
-    button: "bg-[#7c3aed] text-white hover:bg-[#6d28d9]",
-    icon: "bg-[#ede9fe] text-[#6d28d9]",
+    badge: "bg-[#f3f2ff] text-[#6d6af2]",
+    gradient: "bg-gradient-to-br from-[#8b89f6] to-[#4C49ED]",
+    ring: "border-[#8b89f6]",
+    button: "bg-[#6d6af2] text-white hover:bg-[#4C49ED]",
+    slice: "#8b89f6",
   },
 };
 
@@ -96,6 +98,7 @@ export function NexusApp() {
   const [interest, setInterest] = useState("");
   const [rulesOpen, setRulesOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
 
   async function reloadLists() {
     const [decisionsRes, auditRes] = await Promise.all([fetch("/api/decisions"), fetch("/api/audit")]);
@@ -257,17 +260,26 @@ export function NexusApp() {
 
   const showVerdict = view === "decisions" && decision;
 
+  const pageTitle = showVerdict && decision
+    ? `${decision.invoice.invoiceNumber}`
+    : view === "review" ? t(lang, "newReviewTitle")
+      : view === "history" ? t(lang, "historyTitle")
+        : view === "parties" ? t(lang, "partiesTitle")
+          : view === "cash" ? t(lang, "cashTitle")
+            : view === "settings" ? t(lang, "settingsTitle")
+              : t(lang, "navDecisions");
+
   return (
-    <div className="flex h-screen overflow-hidden bg-[#fafafa] text-[#09090b]">
-      <aside className="hidden h-full w-[248px] shrink-0 flex-col gap-1 border-r border-[#e4e4e7] bg-white px-4 py-5 md:flex">
+    <div className="flex h-screen overflow-hidden bg-[#F5F7FA] text-[#343C6A]">
+      <aside className="hidden h-full w-[250px] shrink-0 flex-col bg-white md:flex">
         <Brand lang={lang} />
         <Nav lang={lang} view={view} onNavigate={go} />
       </aside>
 
       {menuOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
-          <button className="absolute inset-0 bg-black/30" aria-label={t(lang, "back")} onClick={() => setMenuOpen(false)} />
-          <aside className="relative flex h-full w-[248px] flex-col gap-1 bg-white px-4 py-5">
+          <button className="absolute inset-0 bg-[#343C6A]/30" aria-label={t(lang, "back")} onClick={() => setMenuOpen(false)} />
+          <aside className="relative flex h-full w-[250px] flex-col bg-white">
             <Brand lang={lang} />
             <Nav lang={lang} view={view} onNavigate={go} />
           </aside>
@@ -275,25 +287,23 @@ export function NexusApp() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-4 md:px-10 md:py-8">
-          {view !== "decisions" && (
-            <div className="mb-6 flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <button className="mt-1 rounded-lg p-1 text-[#09090b] md:hidden" onClick={() => setMenuOpen(true)} aria-label="Menu">
-                  <Menu size={20} />
-                </button>
-                <Header lang={lang} view={view} />
-              </div>
-              <LangCluster lang={lang} actor={actor} onLang={setLang} />
-            </div>
-          )}
-
+        <TopBar
+          lang={lang}
+          title={pageTitle}
+          view={view}
+          query={historyQuery}
+          onQuery={setHistoryQuery}
+          onMenu={() => setMenuOpen(true)}
+          onNavigate={go}
+          onLang={setLang}
+        />
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-6 md:px-8">
           {error && (
-            <p className="mb-4 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]" role="alert" data-testid="app-error">
+            <p className="mb-4 rounded-[20px] bg-[#fff1f1] px-4 py-3 text-sm text-[#d32f2f]" role="alert" data-testid="app-error">
               {quotaText(lang, error.code, error.fallback)}
             </p>
           )}
-          {notice && !showVerdict && <p className="mb-4 rounded-xl border border-[#e4e4e7] bg-white px-4 py-3 text-sm text-[#71717a]">{notice}</p>}
+          {notice && !showVerdict && <p className={`mb-4 px-5 py-3 text-sm text-[#718EBF] ${CARD}`}>{notice}</p>}
 
           {view === "review" && (
             <Review
@@ -305,6 +315,7 @@ export function NexusApp() {
               showPaste={showPaste}
               paste={paste}
               boot={boot}
+              history={history}
               onDragOver={setDragOver}
               onFile={onFile}
               onTogglePaste={() => setShowPaste((value) => !value)}
@@ -322,12 +333,9 @@ export function NexusApp() {
             <Verdict
               lang={lang}
               decision={decision}
-              actor={actor}
               rulesOpen={rulesOpen}
               evidenceOpen={evidenceOpen}
-              onLang={setLang}
               onBack={() => setView("review")}
-              onMenu={() => setMenuOpen(true)}
               onToggleRules={() => setRulesOpen((value) => !value)}
               onToggleEvidence={() => setEvidenceOpen((value) => !value)}
             />
@@ -338,6 +346,8 @@ export function NexusApp() {
               lang={lang}
               items={history}
               audit={audit}
+              query={historyQuery}
+              onQuery={setHistoryQuery}
               onOpen={(id) => void openDecision(id)}
             />
           )}
@@ -384,11 +394,11 @@ export function NexusApp() {
 
 function Brand({ lang }: { lang: Lang }) {
   return (
-    <div className="mb-4 flex items-center gap-2.5 pb-1">
-      <div className="grid size-8 place-items-center rounded-lg bg-[#09090b] text-sm font-semibold text-white">A</div>
+    <div className="flex items-center gap-3 px-7 pb-6 pt-8">
+      <div className="grid size-10 place-items-center rounded-2xl bg-[#4C49ED] text-base font-semibold text-white">A</div>
       <div className="leading-tight">
-        <div className="text-sm font-semibold">ARWEEN-Nexus</div>
-        <div className="text-xs text-[#71717a]">{t(lang, "brandSub")}</div>
+        <div className="text-xl font-semibold tracking-tight text-[#343C6A]">ARWEEN.</div>
+        <div className="text-xs text-[#718EBF]">{t(lang, "brandSub")}</div>
       </div>
     </div>
   );
@@ -396,66 +406,92 @@ function Brand({ lang }: { lang: Lang }) {
 
 function Nav({ lang, view, onNavigate }: { lang: Lang; view: View; onNavigate: (view: View) => void }) {
   return (
-    <>
-      {NAV.map((item) => (
+    <nav className="flex flex-col gap-1">
+      {NAV.map((item) => {
+        const Icon = item.icon;
+        const active = view === item.id;
+        return (
+          <button
+            key={item.id}
+            data-testid={`nav-${item.id}`}
+            onClick={() => onNavigate(item.id)}
+            className={`relative flex w-full items-center gap-4 py-3 pl-8 pr-4 text-left text-[15px] ${active ? "font-medium text-[#4C49ED]" : "text-[#B1B1B1] hover:text-[#4C49ED]"}`}
+          >
+            {active && <span className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-[#4C49ED]" />}
+            <Icon size={20} strokeWidth={1.75} />
+            {t(lang, item.key)}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function TopBar({
+  lang, title, view, query, onQuery, onMenu, onNavigate, onLang,
+}: {
+  lang: Lang;
+  title: string;
+  view: View;
+  query: string;
+  onQuery: (value: string) => void;
+  onMenu: () => void;
+  onNavigate: (view: View) => void;
+  onLang: (lang: Lang) => void;
+}) {
+  return (
+    <header className="flex items-center gap-3 px-4 py-5 md:gap-6 md:px-8">
+      <button className="rounded-xl p-1 text-[#343C6A] md:hidden" onClick={onMenu} aria-label="Menu">
+        <Menu size={22} />
+      </button>
+      <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#4C49ED] text-sm font-semibold text-white md:hidden">A</div>
+      <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight text-[#343C6A] md:text-[28px]">{title}</h1>
+      <div className="ml-auto flex items-center gap-2 md:gap-4">
+        <label className="relative hidden md:block">
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#718EBF]" size={16} />
+          <input
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") onNavigate("history"); }}
+            placeholder={t(lang, "search")}
+            className="h-12 w-64 rounded-full bg-white pl-11 pr-4 text-sm text-[#343C6A] shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none placeholder:text-[#8BA3CB] lg:w-80"
+          />
+        </label>
+        <button className="grid size-11 place-items-center rounded-full bg-white text-[#718EBF] shadow-[0_4px_20px_rgba(45,96,255,0.06)] md:hidden" aria-label={t(lang, "search")} onClick={() => onNavigate("history")}>
+          <Search size={18} />
+        </button>
         <button
-          key={item.id}
-          data-testid={`nav-${item.id}`}
-          onClick={() => onNavigate(item.id)}
-          className={`w-full rounded-lg px-3 py-2 text-left text-sm ${view === item.id ? "bg-[#f4f4f5] font-semibold text-[#09090b]" : "text-[#71717a] hover:bg-[#fafafa]"}`}
+          className={`grid size-11 place-items-center rounded-full bg-white shadow-[0_4px_20px_rgba(45,96,255,0.06)] ${view === "settings" ? "text-[#4C49ED]" : "text-[#718EBF]"}`}
+          aria-label={t(lang, "navSettings")}
+          onClick={() => onNavigate("settings")}
         >
-          {t(lang, item.key)}
+          <SettingsIcon size={18} />
+        </button>
+        <LangCluster lang={lang} onLang={onLang} />
+      </div>
+    </header>
+  );
+}
+
+function LangCluster({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void }) {
+  return (
+    <div className="flex rounded-full bg-white p-1 shadow-[0_4px_20px_rgba(45,96,255,0.06)]">
+      {(["th", "en"] as const).map((code) => (
+        <button
+          key={code}
+          data-testid={`lang-${code}`}
+          onClick={() => onLang(code)}
+          className={`rounded-full px-2.5 py-1.5 text-xs ${lang === code ? "bg-[#4C49ED] font-semibold text-white" : "text-[#718EBF]"}`}
+        >
+          {code.toUpperCase()}
         </button>
       ))}
-    </>
-  );
-}
-
-function Header({ lang, view }: { lang: Lang; view: View }) {
-  const title =
-    view === "review" ? t(lang, "newReviewTitle")
-      : view === "history" ? t(lang, "historyTitle")
-        : view === "parties" ? t(lang, "partiesTitle")
-          : view === "cash" ? t(lang, "cashTitle")
-            : view === "settings" ? t(lang, "settingsTitle")
-              : t(lang, "navDecisions");
-  const sub =
-    view === "review" ? t(lang, "newReviewSub")
-      : view === "history" ? t(lang, "historySub")
-        : view === "parties" ? t(lang, "partiesSub")
-          : view === "cash" ? t(lang, "cashSub")
-            : view === "settings" ? t(lang, "settingsSub")
-              : t(lang, "historyEmpty");
-  return (
-    <div className="min-w-0">
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-1 max-w-3xl text-sm text-[#71717a]">{sub}</p>
-    </div>
-  );
-}
-
-function LangCluster({ lang, actor, onLang }: { lang: Lang; actor: string; onLang: (lang: Lang) => void }) {
-  return (
-    <div className="flex shrink-0 items-center gap-3">
-      <div className="flex rounded-lg bg-[#f4f4f5] p-1">
-        {(["th", "en"] as const).map((code) => (
-          <button
-            key={code}
-            data-testid={`lang-${code}`}
-            onClick={() => onLang(code)}
-            className={`rounded-md px-2.5 py-1 text-xs ${lang === code ? "bg-white font-semibold text-[#09090b]" : "text-[#71717a]"}`}
-          >
-            {code.toUpperCase()}
-          </button>
-        ))}
-      </div>
-      <div className="grid size-8 place-items-center rounded-full bg-[#e4e4e7] text-xs font-semibold">{initials(actor)}</div>
     </div>
   );
 }
 
 function Review({
-  lang, currency, preview, busy, dragOver, showPaste, paste, boot, onDragOver, onFile, onTogglePaste, onPaste, onRunPaste, onSample,
+  lang, currency, preview, busy, dragOver, showPaste, paste, boot, history, onDragOver, onFile, onTogglePaste, onPaste, onRunPaste, onSample,
 }: {
   lang: Lang;
   currency: string;
@@ -465,6 +501,7 @@ function Review({
   showPaste: boolean;
   paste: string;
   boot: BootstrapView | null;
+  history: DecisionListItem[];
   onDragOver: (value: boolean) => void;
   onFile: (file: File | undefined) => void;
   onTogglePaste: () => void;
@@ -487,7 +524,8 @@ function Review({
   ];
   return (
     <div className="flex flex-col gap-6">
-      {boot?.demo.tavily && <p className="text-sm text-[#71717a]">{t(lang, "demoTavily")}</p>}
+      <p className="text-sm text-[#718EBF]">{t(lang, "newReviewSub")}</p>
+      {boot?.demo.tavily && <p className="text-sm text-[#718EBF]">{t(lang, "demoTavily")}</p>}
       <label
         data-testid="dropzone"
         onDragOver={(event) => { event.preventDefault(); onDragOver(true); }}
@@ -497,12 +535,12 @@ function Review({
           onDragOver(false);
           onFile(event.dataTransfer.files?.[0]);
         }}
-        className={`flex h-[220px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed bg-white md:h-[300px] ${dragOver ? "border-[#09090b]" : "border-[#d4d4d8]"}`}
+        className={`flex h-[220px] cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed md:h-[280px] ${CARD} ${dragOver ? "border-[#4C49ED]" : "border-[#d6deee]"}`}
       >
-        <span className="grid size-14 place-items-center rounded-full bg-[#f4f4f5]"><ArrowUp size={22} /></span>
-        <span className="text-lg font-semibold">{busy ? t(lang, "workingShort") : t(lang, "dropTitle")}</span>
-        <span className="text-sm text-[#71717a]">{t(lang, "dropHint")}</span>
-        <span className="rounded-lg bg-[#09090b] px-4 py-2.5 text-sm font-semibold text-white">{t(lang, "browse")}</span>
+        <span className="grid size-14 place-items-center rounded-full bg-[#eef0ff] text-[#4C49ED]"><ArrowUp size={22} /></span>
+        <span className="text-lg font-semibold text-[#343C6A]">{busy ? t(lang, "workingShort") : t(lang, "dropTitle")}</span>
+        <span className="text-sm text-[#718EBF]">{t(lang, "dropHint")}</span>
+        <span className="rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white">{t(lang, "browse")}</span>
         <input
           type="file"
           className="sr-only"
@@ -511,21 +549,22 @@ function Review({
           onChange={(event) => onFile(event.target.files?.[0])}
         />
       </label>
-      <button className="self-start text-sm text-[#71717a] underline-offset-2 hover:underline" onClick={onTogglePaste}>{t(lang, "pasteToggle")}</button>
+      <button className="self-start text-sm text-[#718EBF] underline-offset-2 hover:underline" onClick={onTogglePaste}>{t(lang, "pasteToggle")}</button>
       {showPaste && (
-        <div className="flex flex-col gap-2">
-          <textarea className="min-h-24 rounded-xl border border-[#e4e4e7] bg-white p-3 text-sm" value={paste} onChange={(event) => onPaste(event.target.value)} />
-          <button className="self-start rounded-lg border border-[#e4e4e7] bg-white px-4 py-2 text-sm font-semibold" disabled={busy || !paste.trim()} onClick={onRunPaste}>{t(lang, "runPaste")}</button>
+        <div className={`flex flex-col gap-2 p-5 ${CARD}`}>
+          <textarea className="min-h-24 rounded-2xl border border-[#e6ebf5] bg-[#F5F7FA] p-3 text-sm" value={paste} onChange={(event) => onPaste(event.target.value)} />
+          <button className="self-start rounded-xl bg-[#4C49ED] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy || !paste.trim()} onClick={onRunPaste}>{t(lang, "runPaste")}</button>
         </div>
       )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-[#e4e4e7] bg-white p-5">
-            <div className="text-xs text-[#71717a]">{label}</div>
-            <div className="mt-3 text-lg font-semibold tabular-nums">{value}</div>
+          <div key={label} className={`p-5 ${CARD}`}>
+            <div className="text-xs text-[#718EBF]">{label}</div>
+            <div className="mt-3 text-lg font-semibold tabular-nums text-[#343C6A]">{value}</div>
           </div>
         ))}
       </div>
+      <OutcomeMix lang={lang} items={history} />
       <div>
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold">{t(lang, "trySample")}</h2>
@@ -535,19 +574,19 @@ function Review({
           {samples.map((sample) => {
             const invoice = sampleInvoices[sample.id];
             return (
-              <article key={sample.id} className="flex flex-col gap-3 rounded-xl border border-[#e4e4e7] bg-white p-5">
+              <article key={sample.id} className={`flex flex-col gap-3 p-5 ${CARD}`}>
                 <div className="flex items-center justify-between">
                   <h3 className="text-[15px] font-semibold">{lang === "th" ? `เคส ${sample.id}` : `Case ${sample.id}`}</h3>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE[sample.outcome].badge}`}>{sample.outcome}</span>
                 </div>
-                <p className="text-[13px] text-[#71717a]">{invoice.invoiceNumber} · {invoice.supplierLegalName}</p>
-                <p className="text-xl font-semibold tabular-nums">{formatMinor(invoice.totalMinor, invoice.currency)}</p>
-                <p className="text-xs text-[#71717a]">{t(lang, sample.blurb)}</p>
+                <p className="text-[13px] text-[#718EBF]">{invoice.invoiceNumber} · {invoice.supplierLegalName}</p>
+                <p className="text-xl font-semibold tabular-nums text-[#343C6A]">{formatMinor(invoice.totalMinor, invoice.currency)}</p>
+                <p className="text-xs text-[#718EBF]">{t(lang, sample.blurb)}</p>
                 <button
                   data-testid={`sample-${sample.id}`}
                   disabled={busy}
                   onClick={() => onSample(sample.id)}
-                  className="mt-auto w-full rounded-lg border border-[#e4e4e7] bg-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                  className="mt-auto w-full rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#4C49ED] disabled:opacity-50"
                 >
                   {t(lang, "runSample")} {sample.id}
                 </button>
@@ -565,10 +604,10 @@ function DecisionList({ lang, items, onOpen }: { lang: Lang; items: DecisionList
   return (
     <div className="grid gap-3">
       {items.map((item) => (
-        <button key={item.decisionId} onClick={() => onOpen(item.decisionId)} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e4e4e7] bg-white px-5 py-4 text-left">
+        <button key={item.decisionId} onClick={() => onOpen(item.decisionId)} className={`flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-left ${CARD}`}>
           <div>
-            <div className="font-semibold">{item.invoiceNumber} · {item.supplierLegalName}</div>
-            <div className="mt-1 text-sm text-[#71717a]">{formatWhen(item.createdAt, lang)} · {item.winningRuleId}</div>
+            <div className="font-semibold text-[#343C6A]">{item.invoiceNumber} · {item.supplierLegalName}</div>
+            <div className="mt-1 text-sm text-[#718EBF]">{formatWhen(item.createdAt, lang)} · {item.winningRuleId}</div>
           </div>
           <div className="flex items-center gap-3">
             <span className="tabular-nums text-sm font-semibold">{formatMinor(BigInt(item.totalMinor), item.currency)}</span>
@@ -581,16 +620,13 @@ function DecisionList({ lang, items, onOpen }: { lang: Lang; items: DecisionList
 }
 
 function Verdict({
-  lang, decision, actor, rulesOpen, evidenceOpen, onLang, onBack, onMenu, onToggleRules, onToggleEvidence,
+  lang, decision, rulesOpen, evidenceOpen, onBack, onToggleRules, onToggleEvidence,
 }: {
   lang: Lang;
   decision: DecisionView;
-  actor: string;
   rulesOpen: boolean;
   evidenceOpen: boolean;
-  onLang: (lang: Lang) => void;
   onBack: () => void;
-  onMenu: () => void;
   onToggleRules: () => void;
   onToggleEvidence: () => void;
 }) {
@@ -604,46 +640,26 @@ function Verdict({
   return (
     <div data-testid="verdict">
       <div className="mb-4 flex items-center justify-between md:hidden">
-        <button data-testid="mobile-back" className="text-sm font-medium" onClick={onBack}>← {decision.invoice.invoiceNumber}</button>
-        <div className="flex rounded-lg bg-[#f4f4f5] p-0.5">
-          {(["th", "en"] as const).map((code) => (
-            <button key={code} data-testid={`lang-${code}`} onClick={() => onLang(code)} className={`rounded-md px-2 py-0.5 text-xs ${lang === code ? "bg-white font-semibold" : "text-[#71717a]"}`}>{code.toUpperCase()}</button>
-          ))}
-        </div>
+        <button data-testid="mobile-back" className="text-sm font-medium text-[#343C6A]" onClick={onBack}>← {decision.invoice.invoiceNumber}</button>
       </div>
+      <p className="mb-4 text-sm text-[#718EBF]">
+        {decision.invoice.supplierLegalName} · {t(lang, "uploaded")} {formatWhen(decision.createdAt, lang)} (UTC+7) · {t(lang, "decisionWord")} {shortId(decision.decisionId)} · {t(lang, "statusWord")}: {statusWord(lang, decision.status)}
+      </p>
 
-      <div className="mb-6 hidden items-start justify-between gap-4 md:flex">
-        <div className="flex items-start gap-3">
-          <button className="mt-1 rounded-lg p-1 lg:hidden" onClick={onMenu} aria-label="Menu"><Menu size={20} /></button>
+      <section className={`mb-4 rounded-[25px] p-6 text-white shadow-[0_12px_30px_rgba(76,73,237,0.25)] ${tone.gradient}`}>
+        <div className="text-sm text-white/80">{t(lang, "decisionWord")}</div>
+        <h2 className="mt-2 text-2xl font-semibold md:text-3xl" data-testid="outcome">{headline}</h2>
+        <p className="mt-2 max-w-2xl text-sm text-white/85">{detail}</p>
+        <div className="mt-6 flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{decision.invoice.invoiceNumber} · {decision.invoice.supplierLegalName}</h1>
-            <p className="mt-1 text-sm text-[#71717a]">
-              {t(lang, "uploaded")} {formatWhen(decision.createdAt, lang)} (UTC+7) · {t(lang, "decisionWord")} {shortId(decision.decisionId)} · {t(lang, "statusWord")}: {statusWord(lang, decision.status)}
-            </p>
+            <div className="text-xs text-white/70">{t(lang, "invoiceTotal")}</div>
+            <div className="text-2xl font-semibold tabular-nums">{formatMinor(BigInt(decision.invoice.totalMinor), currency)}</div>
+          </div>
+          <div className="text-right text-sm">
+            <div className="text-white/70">{decision.invoice.supplierLegalName}</div>
+            <div>{decision.winningRuleId}</div>
           </div>
         </div>
-        <LangCluster lang={lang} actor={actor} onLang={onLang} />
-      </div>
-
-      <section className={`mb-4 hidden items-center justify-between gap-4 rounded-xl border px-6 py-5 md:flex ${tone.banner}`}>
-        <div className="flex items-center gap-4">
-          <div className={`grid size-12 place-items-center rounded-full text-2xl font-semibold ${tone.icon}`}>!</div>
-          <div>
-            <h2 className="text-2xl font-semibold" data-testid="outcome">{headline}</h2>
-            <p className="mt-1 text-sm">{detail}</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs opacity-70">{t(lang, "invoiceTotal")}</div>
-          <div className="text-xl font-semibold tabular-nums">{formatMinor(BigInt(decision.invoice.totalMinor), currency)}</div>
-        </div>
-      </section>
-
-      <section className={`mb-4 rounded-xl border p-4 md:hidden ${tone.banner}`}>
-        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${tone.badge}`}>{decision.outcome}</span>
-        <h2 className="mt-2 text-2xl font-semibold" data-testid="outcome">{headline.replace(`${decision.outcome} — `, "")}</h2>
-        <p className="mt-2 text-sm">{formatMinor(BigInt(decision.invoice.totalMinor), currency)} · {decision.invoice.supplierLegalName}</p>
-        <p className="mt-1 text-xs">{t(lang, "colRule")}: {decision.winningRuleId}</p>
       </section>
 
       <h3 className="mb-3 text-base font-semibold md:sr-only">{t(lang, "scenariosTitle")}</h3>
@@ -656,14 +672,14 @@ function Verdict({
         {[...decision.scenarios].sort((a, b) => rank(a.kind, decision.outcome) - rank(b.kind, decision.outcome)).map((scenario) => (
           <MobileScenario key={scenario.kind} lang={lang} scenario={scenario} currency={currency} recommended={scenario.kind === RECOMMENDED[decision.outcome]} tone={tone} />
         ))}
-        <div className="rounded-xl border border-[#e4e4e7] bg-white px-4 py-3 text-sm">
+        <div className={`px-4 py-3 text-sm ${CARD}`}>
           <button className="flex w-full items-center justify-between py-1" onClick={onToggleRules}>
             <span>{t(lang, "ruleChecks")}</span>
-            <span className="text-[#71717a]">{passCount} {t(lang, "pass").toLowerCase()} · {failCount} {t(lang, "fail").toLowerCase()} ›</span>
+            <span className="text-[#718EBF]">{passCount} {t(lang, "pass").toLowerCase()} · {failCount} {t(lang, "fail").toLowerCase()} ›</span>
           </button>
           <button className="flex w-full items-center justify-between py-1" onClick={onToggleEvidence}>
             <span>{t(lang, "evidenceSources")}</span>
-            <span className="text-[#71717a]">{sourceCountLabel(lang, decision)} ›</span>
+            <span className="text-[#718EBF]">{sourceCountLabel(lang, decision)} ›</span>
           </button>
           {(rulesOpen || evidenceOpen) && (
             <div className="mt-3 border-t border-[#e4e4e7] pt-3">
@@ -676,10 +692,10 @@ function Verdict({
 
       <div className="mb-4 hidden gap-4 md:grid md:grid-cols-2">
         <InvoicePaper lang={lang} decision={decision} />
-        <div className="rounded-xl border border-[#e4e4e7] bg-white p-5">
+        <div className={`p-5 ${CARD}`}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold">{t(lang, "extracted")}</h3>
-            <span className="text-xs text-[#71717a]">{modelShort(extractModel(decision))} · {t(lang, "confidence").toLowerCase()} {(decision.invoice.confidenceBps / 100).toFixed(1)}%</span>
+            <span className="text-xs text-[#718EBF]">{modelShort(extractModel(decision))} · {t(lang, "confidence").toLowerCase()} {(decision.invoice.confidenceBps / 100).toFixed(1)}%</span>
           </div>
           <Field label={t(lang, "supplier")} value={decision.invoice.supplierLegalName} />
           <Field label={t(lang, "taxId")} value={decision.invoice.supplierTaxId ?? "—"} />
@@ -688,7 +704,7 @@ function Verdict({
           <RuleList lang={lang} decision={decision} />
           <h3 className="mb-2 mt-4 text-sm font-semibold">{t(lang, "sources")} ({sourceName(decision)})</h3>
           <EvidenceBlock lang={lang} decision={decision} />
-          <p className="mt-4 text-xs leading-5 text-[#71717a]">{lang === "th" ? decision.explanationTh : decision.explanationEn}</p>
+          <p className="mt-4 text-xs leading-5 text-[#718EBF]">{lang === "th" ? decision.explanationTh : decision.explanationEn}</p>
         </div>
       </div>
       {paid && <p className="sr-only">DSCR {paid.dscrMicros ? formatDscr(BigInt(paid.dscrMicros)) : ""}</p>}
@@ -707,16 +723,16 @@ function ScenarioCard({
 }) {
   const title = scenario.kind === "held" ? t(lang, "hold") : scenario.kind === "paid_full" ? (lang === "th" ? "จ่ายเต็ม" : "Pay in full") : (lang === "th" ? "จ่ายไม่เกินเพดาน" : "Partial max");
   return (
-    <article className={`rounded-xl border bg-white p-5 ${recommended ? `border-2 ${tone.ring}` : "border-[#e4e4e7]"}`}>
+    <article className={`p-5 ${CARD} ${recommended ? `border-2 ${tone.ring}` : ""}`}>
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">{title}</h3>
         {recommended && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone.badge}`}>{t(lang, "recommended")}</span>}
       </div>
-      <p className="mt-3 text-sm text-[#71717a]">{t(lang, "paymentLabel")} {formatMinor(BigInt(scenario.decisionPaymentMinor), currency)}</p>
-      <p className="mt-3 text-xs text-[#71717a]">{t(lang, "cashAfter")}</p>
-      <p className="text-xl font-semibold tabular-nums">{formatMinor(BigInt(scenario.cashAvailableMinor), currency)}</p>
+      <p className="mt-3 text-sm text-[#718EBF]">{t(lang, "paymentLabel")} {formatMinor(BigInt(scenario.decisionPaymentMinor), currency)}</p>
+      <p className="mt-3 text-xs text-[#718EBF]">{t(lang, "cashAfter")}</p>
+      <p className="text-xl font-semibold tabular-nums text-[#343C6A]">{formatMinor(BigInt(scenario.cashAvailableMinor), currency)}</p>
       <div className="mt-4 flex items-center justify-between">
-        <span className="text-sm text-[#71717a]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"} {t(lang, "vsThreshold")}</span>
+        <span className="text-sm text-[#718EBF]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"} {t(lang, "vsThreshold")}</span>
         <PassFail lang={lang} pass={scenario.passesDscr} />
       </div>
     </article>
@@ -738,14 +754,14 @@ function MobileScenario({
       ? `${lang === "th" ? "จ่ายเต็ม" : "Pay in full"} · ${moneyOnly(scenario.decisionPaymentMinor)}`
       : `${lang === "th" ? "จ่ายไม่เกินเพดาน" : "Partial max"} · ${moneyOnly(scenario.decisionPaymentMinor)}`;
   return (
-    <article className={`rounded-xl border bg-white px-4 py-3 ${recommended ? `border-2 ${tone.ring}` : "border-[#e4e4e7]"}`}>
+    <article className={`px-4 py-3 ${CARD} ${recommended ? `border-2 ${tone.ring}` : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-semibold">{title}</span>
         {recommended ? <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone.badge}`}>{t(lang, "recommended")}</span> : <PassFail lang={lang} pass={scenario.passesDscr} />}
       </div>
       <div className="mt-2 flex items-end justify-between">
         <span className="text-lg font-semibold tabular-nums">{formatMinor(BigInt(scenario.cashAvailableMinor), currency)}</span>
-        <span className="text-sm text-[#71717a]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"}</span>
+        <span className="text-sm text-[#718EBF]">DSCR {scenario.dscrMicros ? formatDscr(BigInt(scenario.dscrMicros)) : "—"}</span>
       </div>
     </article>
   );
@@ -755,13 +771,13 @@ function InvoicePaper({ lang, decision }: { lang: Lang; decision: DecisionView }
   const currency = decision.invoice.currency;
   const rate = (decision.invoice.vatRateBps / 100).toString();
   return (
-    <section className="rounded-xl border border-[#e4e4e7] bg-white p-5">
-      <h3 className="mb-3 text-sm font-semibold">{t(lang, "invoiceDoc")}</h3>
-      <div className="rounded-lg bg-[#fafafa] p-6 text-sm">
+    <section className={`p-5 ${CARD}`}>
+      <h3 className="mb-3 text-sm font-semibold text-[#343C6A]">{t(lang, "invoiceDoc")}</h3>
+      <div className="rounded-2xl bg-[#F5F7FA] p-6 text-sm">
         <p className="font-semibold uppercase">{decision.invoice.supplierLegalName}</p>
-        <p className="mt-1 text-xs text-[#71717a]">{t(lang, "taxId")} {decision.invoice.supplierTaxId ?? "—"}</p>
+        <p className="mt-1 text-xs text-[#718EBF]">{t(lang, "taxId")} {decision.invoice.supplierTaxId ?? "—"}</p>
         <p className="mt-3 font-semibold">TAX INVOICE {decision.invoice.invoiceNumber}</p>
-        <p className="mt-1 text-xs text-[#71717a]">{t(lang, "issue")} {decision.invoice.issueDate} · {t(lang, "due")} {decision.invoice.dueDate}</p>
+        <p className="mt-1 text-xs text-[#718EBF]">{t(lang, "issue")} {decision.invoice.issueDate} · {t(lang, "due")} {decision.invoice.dueDate}</p>
         <div className="mt-4 space-y-2">
           {decision.invoice.lines.map((line) => (
             <div key={line.lineNo} className="flex justify-between gap-3">
@@ -787,7 +803,7 @@ function RuleList({ lang, decision }: { lang: Lang; decision: DecisionView }) {
         <div key={finding.ruleId} className="flex items-center justify-between gap-3 py-1">
           <div>
             <div className="text-xs font-semibold">{finding.ruleId}</div>
-            <div className="text-xs text-[#71717a]">
+            <div className="text-xs text-[#718EBF]">
               {finding.detailKey === "not_verified" ? findingText(lang, finding.detailKey, finding.params) : rulePurpose(lang, finding.ruleId)}
             </div>
           </div>
@@ -800,12 +816,12 @@ function RuleList({ lang, decision }: { lang: Lang; decision: DecisionView }) {
 
 function EvidenceBlock({ lang, decision }: { lang: Lang; decision: DecisionView }) {
   if (decision.retrieval?.provider === "not_verified" || decision.evidence.length === 0) {
-    return <p className="text-xs text-[#71717a]">{decision.retrieval?.provider === "not_verified" ? t(lang, "taxNotVerified") : t(lang, "noSources")}</p>;
+    return <p className="text-xs text-[#718EBF]">{decision.retrieval?.provider === "not_verified" ? t(lang, "taxNotVerified") : t(lang, "noSources")}</p>;
   }
   return (
     <div className="space-y-1">
       {decision.evidence.map((hit) => (
-        <a key={hit.url} href={hit.url} className="block text-xs text-[#2563eb] hover:underline" target="_blank" rel="noreferrer">
+        <a key={hit.url} href={hit.url} className="block text-xs text-[#2D60FF] hover:underline" target="_blank" rel="noreferrer">
           ↗ {hit.title}
         </a>
       ))}
@@ -835,13 +851,13 @@ function ActionBar({
         : decision.outcome === "HOLD" ? t(lang, "confirmHold")
           : t(lang, "recordInsufficient");
   return (
-    <div className="border-t border-[#e4e4e7] bg-white px-4 py-3 md:px-10">
+    <div className="bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(45,96,255,0.06)] md:px-8">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <p className={`text-sm text-[#71717a] ${notice ? "" : "hidden md:block"}`}>{notice ?? t(lang, "proposeNote")}</p>
-        <button data-testid="approve" disabled={locked} onClick={onConfirm} className={`order-first w-full rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50 md:order-last md:w-auto ${tone.button}`}>{approve}</button>
+        <p className={`text-sm text-[#718EBF] ${notice ? "" : "hidden md:block"}`}>{notice ?? t(lang, "proposeNote")}</p>
+        <button data-testid="approve" disabled={locked} onClick={onConfirm} className={`order-first w-full rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50 md:order-last md:w-auto ${tone.button}`}>{approve}</button>
         <div className="grid grid-cols-2 gap-2 md:flex">
-          <button data-testid="reject" disabled={locked} onClick={onReject} className="rounded-lg border border-[#e4e4e7] bg-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{t(lang, "reject")}</button>
-          <button data-testid="hold" disabled={busy || decision.status !== "proposed"} onClick={onHold} className="rounded-lg bg-[#09090b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{t(lang, "hold")}</button>
+          <button data-testid="reject" disabled={locked} onClick={onReject} className="rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#343C6A] disabled:opacity-50">{t(lang, "reject")}</button>
+          <button data-testid="hold" disabled={busy || decision.status !== "proposed"} onClick={onHold} className="rounded-xl bg-[#343C6A] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{t(lang, "hold")}</button>
         </div>
       </div>
     </div>
@@ -849,14 +865,15 @@ function ActionBar({
 }
 
 function History({
-  lang, items, audit, onOpen,
+  lang, items, audit, query, onQuery, onOpen,
 }: {
   lang: Lang;
   items: DecisionListItem[];
   audit: AuditRow[];
+  query: string;
+  onQuery: (value: string) => void;
   onOpen: (id: string) => void;
 }) {
-  const [query, setQuery] = useState("");
   const [outcome, setOutcome] = useState("all");
   const [status, setStatus] = useState("all");
   const [range, setRange] = useState("7");
@@ -922,51 +939,52 @@ function History({
 
   return (
     <div data-testid="history">
+      <p className="mb-4 text-sm text-[#718EBF]">{t(lang, "historySub")}</p>
       <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:flex-wrap">
-        <input data-testid="history-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(lang, "search")} className="h-10 w-full rounded-lg border border-[#e4e4e7] bg-white px-3 text-sm lg:w-80" />
+        <input data-testid="history-search" value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(lang, "search")} className="h-12 w-full rounded-full bg-white px-4 text-sm shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none lg:w-80" />
         <Select value={outcome} onChange={setOutcome} label={t(lang, "outcomeAll")} options={[["all", t(lang, "outcomeAll")], ["PAY", "PAY"], ["PARTIAL", "PARTIAL"], ["HOLD", "HOLD"], ["INSUFFICIENT", "INSUFFICIENT"]]} />
         <Select value={status} onChange={setStatus} label={t(lang, "statusAll")} options={[["all", t(lang, "statusAll")], ["proposed", t(lang, "statusProposed")], ["confirmed", t(lang, "statusConfirmed")], ["rejected", t(lang, "statusRejected")]]} />
         <Select value={range} onChange={setRange} label={t(lang, "date7")} options={[["7", t(lang, "date7")], ["30", t(lang, "date30")], ["all", t(lang, "dateAll")]]} />
         <Select value={rule} onChange={setRule} label={t(lang, "ruleAny")} options={[["all", t(lang, "ruleAny")], ...rules.map((id) => [id, id] as [string, string])]} />
-        <button onClick={exportCsv} className="h-10 rounded-lg border border-[#e4e4e7] bg-white px-4 text-sm font-semibold">{t(lang, "exportCsv")}</button>
+        <button onClick={exportCsv} className="h-12 rounded-full bg-[#4C49ED] px-4 text-sm font-semibold text-white">{t(lang, "exportCsv")}</button>
       </div>
       <div className="mb-3 flex flex-wrap gap-2 text-xs font-semibold">
         {(["all", "PAY", "PARTIAL", "HOLD", "INSUFFICIENT"] as const).map((key) => (
-          <button key={key} onClick={() => setOutcome(key === "all" ? "all" : key)} className={`rounded-full px-2.5 py-1 ${outcome === key || (key === "all" && outcome === "all") ? "bg-[#09090b] text-white" : "bg-[#f4f4f5] text-[#71717a]"}`}>
+          <button key={key} onClick={() => setOutcome(key === "all" ? "all" : key)} className={`rounded-full px-3 py-1 ${outcome === key || (key === "all" && outcome === "all") ? "bg-[#4C49ED] text-white" : "bg-white text-[#718EBF]"}`}>
             {key === "all" ? `${lang === "th" ? "ทั้งหมด" : "All"} ${counts.all}` : `${key} ${counts[key]}`}
           </button>
         ))}
       </div>
-      <div className="overflow-x-auto rounded-xl border border-[#e4e4e7] bg-white">
+      <div className={`overflow-x-auto ${CARD}`}>
         <table className="w-full min-w-[860px] text-left text-sm">
-          <thead className="text-[#71717a]">
+          <thead className="text-xs uppercase tracking-wide text-[#718EBF]">
             <tr>
               {[t(lang, "colTime"), t(lang, "colInvoice"), t(lang, "colSupplier"), t(lang, "colTotal"), t(lang, "colOutcome"), t(lang, "colRule"), t(lang, "colStatus"), t(lang, "colBy")].map((heading) => (
-                <th key={heading} className="px-4 py-3 font-medium">{heading}</th>
+                <th key={heading} className="px-5 py-4 font-medium">{heading}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-[#71717a]">{t(lang, "noMatch")}</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={8} className="px-5 py-6 text-[#718EBF]">{t(lang, "noMatch")}</td></tr>}
             {filtered.map((item) => (
-              <tr key={item.decisionId} data-testid={`row-${item.invoiceNumber}`} onClick={() => setSelected(item.decisionId)} className={`cursor-pointer border-t border-[#f4f4f5] ${active?.decisionId === item.decisionId ? "bg-[#fafafa]" : ""}`}>
-                <td className="px-4 py-3 whitespace-nowrap">{formatWhen(item.createdAt, lang)}</td>
-                <td className="px-4 py-3"><button className="font-medium underline-offset-2 hover:underline" onClick={(event) => { event.stopPropagation(); onOpen(item.decisionId); }}>{item.invoiceNumber}</button></td>
-                <td className="px-4 py-3">{item.supplierLegalName}</td>
-                <td className="px-4 py-3 tabular-nums">{moneyOnly(item.totalMinor)}</td>
-                <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE[item.outcome].badge}`}>{item.outcome}</span></td>
-                <td className="px-4 py-3">{item.winningRuleId}</td>
-                <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}>{statusWord(lang, item.status)}</span></td>
-                <td className="px-4 py-3">{item.status === "proposed" ? "—" : item.actor || "—"}</td>
+              <tr key={item.decisionId} data-testid={`row-${item.invoiceNumber}`} onClick={() => setSelected(item.decisionId)} className={`cursor-pointer border-t border-[#F5F7FA] ${active?.decisionId === item.decisionId ? "bg-[#F5F7FA]" : "hover:bg-[#fbfcff]"}`}>
+                <td className="px-5 py-4 whitespace-nowrap text-[#718EBF]">{formatWhen(item.createdAt, lang)}</td>
+                <td className="px-5 py-4"><button className="font-medium text-[#343C6A] underline-offset-2 hover:underline" onClick={(event) => { event.stopPropagation(); onOpen(item.decisionId); }}>{item.invoiceNumber}</button></td>
+                <td className="px-5 py-4">{item.supplierLegalName}</td>
+                <td className="px-5 py-4 tabular-nums">{moneyOnly(item.totalMinor)}</td>
+                <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE[item.outcome].badge}`}>{item.outcome}</span></td>
+                <td className="px-5 py-4 text-[#718EBF]">{item.winningRuleId}</td>
+                <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}>{statusWord(lang, item.status)}</span></td>
+                <td className="px-5 py-4">{item.status === "proposed" ? "—" : item.actor || "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       {active && (
-        <section className="mt-4 rounded-xl border border-[#e4e4e7] bg-white p-5">
-          <h3 className="text-sm font-semibold">{t(lang, "auditTrail")} — {shortId(active.decisionId)} ({active.invoiceNumber})</h3>
-          <ul className="mt-3 space-y-2 text-xs text-[#3f3f46]">
+        <section className={`mt-4 p-5 ${CARD}`}>
+          <h3 className="text-sm font-semibold text-[#343C6A]">{t(lang, "auditTrail")} — {shortId(active.decisionId)} ({active.invoiceNumber})</h3>
+          <ul className="mt-3 space-y-2 text-xs text-[#343C6A]">
             <li>{formatClock(active.createdAt)} · {active.outcome} · {active.winningRuleId} · {formatMinor(BigInt(active.totalMinor), active.currency)}</li>
             {detail?.decisionId === active.decisionId && detail.models.map((model) => (
               <li key={`${model.purpose}-${model.modelId}`}>
@@ -983,7 +1001,7 @@ function History({
             {trail.map((row) => (
               <li key={row.auditId}>{formatClock(row.createdAt)} · {row.action} · {row.actor} · {row.detail}</li>
             ))}
-            {trail.length === 0 && <li className="text-[#71717a]">{t(lang, "auditEmpty")}</li>}
+            {trail.length === 0 && <li className="text-[#718EBF]">{t(lang, "auditEmpty")}</li>}
           </ul>
         </section>
       )}
@@ -995,15 +1013,18 @@ function Parties({ lang, items }: { lang: Lang; items: DecisionListItem[] }) {
   const groups = new Map<string, number>();
   for (const item of items) groups.set(item.supplierLegalName, (groups.get(item.supplierLegalName) ?? 0) + 1);
   const rows = Array.from(groups.entries());
-  if (rows.length === 0) return <p className="text-sm text-[#71717a]">{t(lang, "partiesEmpty")}</p>;
+  if (rows.length === 0) return <div><p className="mb-3 text-sm text-[#718EBF]">{t(lang, "partiesSub")}</p><p className="text-sm text-[#718EBF]">{t(lang, "partiesEmpty")}</p></div>;
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div>
+      <p className="mb-4 text-sm text-[#718EBF]">{t(lang, "partiesSub")}</p>
+      <div className="grid gap-4 sm:grid-cols-2">
       {rows.map(([name, count]) => (
-        <article key={name} className="rounded-xl border border-[#e4e4e7] bg-white p-5">
-          <h3 className="font-semibold">{name}</h3>
-          <p className="mt-1 text-sm text-[#71717a]">{count} {t(lang, "invoices")}</p>
+        <article key={name} className={`p-5 ${CARD}`}>
+          <h3 className="font-semibold text-[#343C6A]">{name}</h3>
+          <p className="mt-1 text-sm text-[#718EBF]">{count} {t(lang, "invoices")}</p>
         </article>
       ))}
+      </div>
     </div>
   );
 }
@@ -1033,21 +1054,22 @@ function Cash({
   ] as const;
   return (
     <div className="max-w-3xl">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <p className="mb-4 text-sm text-[#718EBF]">{t(lang, "cashSub")}</p>
+      <div className={`grid gap-3 p-5 sm:grid-cols-2 ${CARD}`}>
         {fields.map(([label, value, onChange]) => (
-          <label key={label} className="text-xs text-[#71717a]">
+          <label key={label} className="text-xs text-[#718EBF]">
             {label}
-            <input value={value} onChange={(event) => onChange(event.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border border-[#e4e4e7] bg-white px-3 text-sm text-[#09090b]" />
+            <input value={value} onChange={(event) => onChange(event.target.value)} inputMode="decimal" className="mt-1 h-11 w-full rounded-xl border border-[#e6ebf5] bg-[#F5F7FA] px-3 text-sm text-[#343C6A] outline-none" />
           </label>
         ))}
       </div>
       {preview && (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-[#e4e4e7] bg-white p-4 text-sm"><span className="text-[#71717a]">{t(lang, "debtService")}</span><div className="mt-1 font-semibold tabular-nums">{formatMinor(preview.debt, currency)}</div></div>
-          <div className="rounded-xl border border-[#e4e4e7] bg-white p-4 text-sm"><span className="text-[#71717a]">{t(lang, "maxPay")}</span><div className="mt-1 font-semibold tabular-nums">{formatMinor(preview.max, currency)}</div></div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className={`p-5 text-sm ${CARD}`}><span className="text-[#718EBF]">{t(lang, "debtService")}</span><div className="mt-1 font-semibold tabular-nums text-[#343C6A]">{formatMinor(preview.debt, currency)}</div></div>
+          <div className={`p-5 text-sm ${CARD}`}><span className="text-[#718EBF]">{t(lang, "maxPay")}</span><div className="mt-1 font-semibold tabular-nums text-[#343C6A]">{formatMinor(preview.max, currency)}</div></div>
         </div>
       )}
-      <button disabled={busy} onClick={onSave} className="mt-4 rounded-lg bg-[#09090b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{t(lang, "saveAssumptions")}</button>
+      <button disabled={busy} onClick={onSave} className="mt-4 rounded-xl bg-[#4C49ED] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{t(lang, "saveAssumptions")}</button>
     </div>
   );
 }
@@ -1064,29 +1086,30 @@ function Settings({
 }) {
   return (
     <div className="max-w-2xl space-y-4">
-      <label className="block text-xs text-[#71717a]">
+      <p className="text-sm text-[#718EBF]">{t(lang, "settingsSub")}</p>
+      <label className={`block p-5 text-xs text-[#718EBF] ${CARD}`}>
         {t(lang, "actor")}
-        <input value={actor} onChange={(event) => onActor(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-[#e4e4e7] bg-white px-3 text-sm text-[#09090b]" />
+        <input value={actor} onChange={(event) => onActor(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-[#e6ebf5] bg-[#F5F7FA] px-3 text-sm text-[#343C6A] outline-none" />
       </label>
       {boot && (
-        <div className="rounded-xl border border-[#e4e4e7] bg-white p-5 text-sm">
-          <h3 className="font-semibold">{t(lang, "modelsLive")}</h3>
-          <p className="mt-2 text-[#71717a]">extract · {boot.models.extract}</p>
-          <p className="text-[#71717a]">explain · {boot.models.explain}</p>
-          <p className="text-[#71717a]">vision · {boot.models.vision}</p>
-          <p className="text-[#71717a]">{boot.models.baseUrl}</p>
-          <p className="mt-3">{boot.demo.nebius ? t(lang, "demoNebius") : t(lang, "liveNote")}</p>
-          {boot.demo.tavily && <p className="mt-2">{t(lang, "demoTavily")}</p>}
+        <div className={`p-5 text-sm ${CARD}`}>
+          <h3 className="font-semibold text-[#343C6A]">{t(lang, "modelsLive")}</h3>
+          <p className="mt-2 text-[#718EBF]">extract · {boot.models.extract}</p>
+          <p className="text-[#718EBF]">explain · {boot.models.explain}</p>
+          <p className="text-[#718EBF]">vision · {boot.models.vision}</p>
+          <p className="text-[#718EBF]">{boot.models.baseUrl}</p>
+          <p className="mt-3 text-[#343C6A]">{boot.demo.nebius ? t(lang, "demoNebius") : t(lang, "liveNote")}</p>
+          {boot.demo.tavily && <p className="mt-2 text-[#343C6A]">{t(lang, "demoTavily")}</p>}
         </div>
       )}
-      <button disabled={busy} onClick={onReset} className="rounded-lg border border-[#e4e4e7] bg-white px-4 py-2.5 text-sm font-semibold">{t(lang, "reset")}</button>
+      <button disabled={busy} onClick={onReset} className="rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#343C6A]">{t(lang, "reset")}</button>
     </div>
   );
 }
 
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; label: string; options: Array<[string, string]> }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-lg border border-[#e4e4e7] bg-white px-3 text-sm">
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="h-12 rounded-full bg-white px-4 text-sm text-[#343C6A] shadow-[0_4px_20px_rgba(45,96,255,0.06)] outline-none">
       {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
     </select>
   );
@@ -1095,7 +1118,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (value:
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1 text-sm">
-      <span className="text-[#71717a]">{label}</span>
+      <span className="text-[#718EBF]">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>
   );
@@ -1122,6 +1145,43 @@ function StatusPill({ lang, finding }: { lang: Lang; finding: DecisionView["find
     return <span className="rounded-full bg-[#fffbeb] px-2.5 py-1 text-xs font-semibold text-[#d97706]">{t(lang, "warnLabel")}</span>;
   }
   return <span className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-xs font-semibold text-[#71717a]">{finding.status}</span>;
+}
+
+function OutcomeMix({ lang, items }: { lang: Lang; items: DecisionListItem[] }) {
+  const keys = ["PAY", "PARTIAL", "HOLD", "INSUFFICIENT"] as const;
+  const counts = { PAY: 0, PARTIAL: 0, HOLD: 0, INSUFFICIENT: 0 };
+  for (const item of items) counts[item.outcome] += 1;
+  const total = items.length;
+  const max = Math.max(...keys.map((key) => counts[key]), 1);
+  let cursor = 0;
+  const stops = keys.map((key) => {
+    const start = cursor;
+    cursor += total === 0 ? 0 : (counts[key] / total) * 100;
+    return `${TONE[key].slice} ${start}% ${cursor}%`;
+  });
+  const pie = total === 0 ? "conic-gradient(#E6EBF5 0% 100%)" : `conic-gradient(${stops.join(", ")})`;
+  return (
+    <section className={`p-5 ${CARD}`}>
+      <h2 className="text-base font-semibold text-[#343C6A]">{t(lang, "historyTitle")}</h2>
+      <p className="mt-1 text-xs text-[#718EBF]">{total === 0 ? t(lang, "historyEmpty") : `${total}`}</p>
+      <div className="mt-5 flex flex-col items-center gap-6 sm:flex-row sm:items-end">
+        <div className="grid size-36 place-items-center rounded-full" style={{ background: pie }} aria-hidden="true">
+          <div className="grid size-20 place-items-center rounded-full bg-white text-lg font-semibold text-[#343C6A]">{total}</div>
+        </div>
+        <div className="flex w-full flex-1 items-end gap-3">
+          {keys.map((key) => (
+            <div key={key} className="flex flex-1 flex-col items-center gap-2">
+              <div className="flex h-28 w-full items-end">
+                <div className="w-full rounded-t-xl" style={{ height: `${total === 0 ? 0 : Math.round((counts[key] / max) * 100)}%`, background: TONE[key].slice }} />
+              </div>
+              <span className="text-[11px] font-medium text-[#718EBF]">{key}</span>
+              <span className="text-sm font-semibold text-[#343C6A]">{counts[key]}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function verdictHeadline(lang: Lang, decision: DecisionView, currency: string): string {
@@ -1233,15 +1293,6 @@ function statusTone(status: DecisionView["status"]): string {
 function shortId(id: string): string {
   if (id.length <= 12) return id;
   return `${id.slice(0, 8)}…${id.slice(-2)}`;
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "TS";
-  const first = parts[0] ?? "";
-  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
-  const last = parts[parts.length - 1] ?? "";
-  return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
 }
 
 function csvCell(value: string): string {
