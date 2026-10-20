@@ -3,6 +3,7 @@ import { validateExplanation, type ExplanationDraft } from "./engine/hallucinati
 import { templateExplanation } from "./engine/templates";
 import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
+import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
 import { parseStrictInvoice } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
 import { appConfig } from "./env";
@@ -65,6 +66,9 @@ export async function analyzeRequest(options: {
     const loaded = await fileToText(options.file);
     text = loaded.text;
     image = loaded.image;
+    if (loaded.sparsePdf && !loaded.image) {
+      throw new AnalyzeError("This PDF has no text layer, so no amount was read or guessed.", 422, "INSUFFICIENT");
+    }
   } else if (!text.trim()) {
     throw new AnalyzeError("Upload an invoice or choose a sample", 400);
   }
@@ -143,6 +147,7 @@ export async function analyzeRequest(options: {
 async function fileToText(file: { filename: string; mime: string; bytes: Buffer }): Promise<{
   text: string;
   image?: { mime: string; bytes: Buffer };
+  sparsePdf?: boolean;
 }> {
   const mime = file.mime.toLowerCase();
   const name = file.filename.toLowerCase();
@@ -155,7 +160,7 @@ async function fileToText(file: { filename: string; mime: string; bytes: Buffer 
     const pdf = await getDocumentProxy(new Uint8Array(file.bytes));
     const extracted = await extractText(pdf, { mergePages: true });
     const text = Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "");
-    return { text };
+    return { text, sparsePdf: text.replace(/\s/g, "").length < MIN_PDF_TEXT_CHARS };
   }
   if (mime === "image/png" || mime === "image/jpeg" || mime === "image/webp" || /\.(png|jpe?g|webp)$/.test(name)) {
     return { text: "", image: { mime: mime || "image/png", bytes: file.bytes } };
@@ -233,24 +238,56 @@ async function extractInvoice(input: {
     const userText = text.slice(0, 40_000) || "No text was extracted from the file.";
     let parsed: ReturnType<typeof parseStrictInvoice> = { ok: false, reason: "not_called", missing: [] };
     let drift: string | null = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    let kept: InvoiceInput | null = null;
+    const models = [config.extractModel, config.explainFallbackModel];
+    for (let attempt = 0; attempt < models.length; attempt += 1) {
+      const model = models[attempt] ?? config.extractModel;
       const correction =
         attempt === 0
           ? "Each LINE is line_no | description | quantity_millis | unit_price_minor | line_total_minor. Copy those integers unchanged. Do not multiply quantity_millis."
           : drift
-            ? `${drift} Copy every printed integer again. Do not multiply or divide.`
-            : `The previous JSON failed schema check (${parsed.ok ? "unknown" : parsed.reason}). Copy the printed integers exactly. Do not guess.`;
-      const completion = await nebiusChat({
-        model: config.extractModel,
-        json: true,
-        messages: [
-          { role: "system", content: EXTRACT_SYSTEM },
-          { role: "user", content: `${correction}\n\n${userText}` },
-        ],
-      });
-      const payload = extractJsonObject(completion.text);
-      parsed = parseStrictInvoice(JSON.stringify(payload));
+            ? `${drift} Copy every printed integer again. Do not multiply or divide. Do not guess a missing amount.`
+            : `The previous JSON failed schema check (${parsed.ok ? "unreadable" : parsed.reason}). Return only the JSON object. Copy printed integers exactly. Do not guess.`;
+      let completion;
+      try {
+        completion = await nebiusChat({
+          model,
+          json: true,
+          messages: [
+            { role: "system", content: EXTRACT_SYSTEM },
+            { role: "user", content: `${correction}\n\n${userText}` },
+          ],
+        });
+      } catch (error) {
+        if (error instanceof GuardError || error instanceof AnalyzeError) throw error;
+        const message = error instanceof NebiusError ? error.message : "Nemotron extraction failed";
+        invocations.push({
+          purpose: "extract",
+          provider: "nebius",
+          modelId: model,
+          accepted: false,
+          latencyMs: null,
+          error: message.slice(0, 500),
+          responseExcerpt: null,
+          promptTokens: null,
+          completionTokens: null,
+        });
+        if (attempt === models.length - 1) {
+          await recordInvocations(invocations);
+          await recordAudit("extract.failed", "system", message.slice(0, 500));
+          throw new AnalyzeError(message, 502);
+        }
+        parsed = { ok: false, reason: message.slice(0, 180), missing: [] };
+        continue;
+      }
+      try {
+        const payload = extractJsonObject(completion.text);
+        parsed = parseStrictInvoice(JSON.stringify(payload));
+      } catch (error) {
+        parsed = { ok: false, reason: error instanceof Error ? error.message : "model_json_missing", missing: [] };
+      }
       drift = parsed.ok ? labeledIntegerDrift(userText, parsed.invoice) : null;
+      if (parsed.ok) kept = parsed.invoice;
       invocations.push({
         purpose: "extract",
         provider: "nebius",
@@ -264,9 +301,10 @@ async function extractInvoice(input: {
       });
       if (parsed.ok && !drift) return { invoice: parsed.invoice, invocations };
     }
-    if (parsed.ok) return { invoice: parsed.invoice, invocations };
+    if (kept) return { invoice: kept, invocations };
     return { invoice: null, invocations, error: "The extractor returned JSON that failed the invoice schema. No amount was guessed." };
   } catch (error) {
+    if (error instanceof AnalyzeError) throw error;
     if (error instanceof GuardError) {
       await recordInvocations(invocations);
       throw error;

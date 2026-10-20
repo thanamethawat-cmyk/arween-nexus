@@ -57,11 +57,16 @@ export async function prepareUpload(file: File): Promise<File> {
     if (text.length > MAX_TEXT_CHARS) throw new PrepareError("fileTextTooBig");
     return file;
   }
-  if (kind === "pdf") {
-    if (file.size <= MAX_PAYLOAD_BYTES) return file;
-    return shrinkPdf(file);
-  }
+  if (kind === "pdf") return preparePdf(file);
   return shrinkImage(file);
+}
+
+/** Text PDFs stay text. A scan, at any size, becomes a page image so the vision model can read it. */
+export function pdfDelivery(options: { bytes: number; textChars: number }): "original" | "text" | "raster" {
+  if (options.textChars >= MIN_PDF_TEXT_CHARS) {
+    return options.bytes <= MAX_PAYLOAD_BYTES ? "original" : "text";
+  }
+  return "raster";
 }
 
 async function shrinkImage(file: File): Promise<File> {
@@ -79,13 +84,15 @@ async function shrinkImage(file: File): Promise<File> {
   }
 }
 
-async function shrinkPdf(file: File): Promise<File> {
+async function preparePdf(file: File): Promise<File> {
   const { getDocumentProxy, extractText, renderPageAsImage } = await import("unpdf");
   const pdf = await getDocumentProxy(new Uint8Array(await file.arrayBuffer()));
   try {
     const extracted = await extractText(pdf, { mergePages: true });
     const text = (Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "")).trim();
-    if (text.replace(/\s/g, "").length >= MIN_PDF_TEXT_CHARS) {
+    const delivery = pdfDelivery({ bytes: file.size, textChars: text.replace(/\s/g, "").length });
+    if (delivery === "original") return file;
+    if (delivery === "text") {
       return new File([text.slice(0, MAX_TEXT_CHARS)], renamed(file.name, "txt"), { type: "text/plain" });
     }
     const pages = Math.min(pdf.numPages, MAX_PDF_PAGES);
