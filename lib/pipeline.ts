@@ -3,6 +3,7 @@ import { validateExplanation, type ExplanationDraft } from "./engine/hallucinati
 import { templateExplanation } from "./engine/templates";
 import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
+import { hasInvoiceSignal, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
 import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
 import { parseStrictInvoice } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
@@ -223,19 +224,24 @@ async function extractInvoice(input: {
         ],
       });
       text = transcribed.text;
+      const readable = hasInvoiceSignal(text);
       invocations.push({
         purpose: "transcribe",
         provider: "nebius",
         modelId: transcribed.model,
-        accepted: true,
+        accepted: readable,
         latencyMs: transcribed.latencyMs,
-        error: null,
+        error: readable ? null : "no_invoice_signal",
         responseExcerpt: text.slice(0, 2000),
         promptTokens: transcribed.usage.promptTokens,
         completionTokens: transcribed.usage.completionTokens,
       });
+      if (!readable) return { invoice: null, invocations, error: UNREADABLE_INVOICE };
     }
-    const userText = text.slice(0, 40_000) || "No text was extracted from the file.";
+    const userText = text.slice(0, 40_000);
+    if (!hasInvoiceSignal(userText)) {
+      return { invoice: null, invocations, error: UNREADABLE_INVOICE };
+    }
     let parsed: ReturnType<typeof parseStrictInvoice> = { ok: false, reason: "not_called", missing: [] };
     let drift: string | null = null;
     let kept: InvoiceInput | null = null;
@@ -302,7 +308,7 @@ async function extractInvoice(input: {
       if (parsed.ok && !drift) return { invoice: parsed.invoice, invocations };
     }
     if (kept) return { invoice: kept, invocations };
-    return { invoice: null, invocations, error: "The extractor returned JSON that failed the invoice schema. No amount was guessed." };
+    return { invoice: null, invocations, error: SCHEMA_REJECTED };
   } catch (error) {
     if (error instanceof AnalyzeError) throw error;
     if (error instanceof GuardError) {

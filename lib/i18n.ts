@@ -74,6 +74,9 @@ const copy = {
     fileShrinkFail: "ย่อไฟล์นี้ให้เล็กพอสำหรับเดโมฟรีไม่สำเร็จ โฮสต์รับคำขอได้ประมาณ 4.5 MB ลองถ่ายรูปหนึ่งหน้า",
     fileTextTooBig: "ไฟล์ข้อความหรือ JSON ต้องเล็กกว่า 3 MB รูปและ PDF ขนาดไม่เกิน 25 MB จะถูกย่อในเบราว์เซอร์",
     fileType: "ใช้ไฟล์ PDF, PNG, JPEG, WEBP, TXT หรือ JSON",
+    fileUnreadable: "หน้านี้ว่างหรืออ่านยอดเงินไม่ได้ ลองอัปโหลดรูปที่ชัดขึ้น หรือ PDF ที่มีชั้นข้อความ",
+    unreadInvoice: "อ่านยอดเงินจากไฟล์นี้ไม่ได้ จึงไม่ได้เดายอด",
+    schemaRejected: "อ่านฟิลด์ใบแจ้งหนี้ไม่ได้ จึงไม่ได้เดายอด",
     themeDark: "โหมดมืด",
     themeLight: "โหมดสว่าง",
     browse: "เลือกไฟล์",
@@ -234,6 +237,9 @@ const copy = {
     fileShrinkFail: "This file could not be reduced enough to send. The free host accepts about 4.5 MB per request. Try a photo of one page.",
     fileTextTooBig: "Text and JSON files must be under 3 MB. Photos and PDFs up to 25 MB are reduced in this browser before sending.",
     fileType: "Use a PDF, PNG, JPEG, WEBP, TXT, or JSON invoice.",
+    fileUnreadable: "This page is blank or has no readable amounts. Try a clearer photo, or a PDF with a text layer.",
+    unreadInvoice: "No invoice amounts were readable in this file. No amount was guessed.",
+    schemaRejected: "The invoice fields could not be read. No amount was guessed.",
     themeDark: "Dark mode",
     themeLight: "Light mode",
     browse: "Browse files",
@@ -345,6 +351,13 @@ export function uploadFallback(lang: Lang, fallback: string): string {
   if (/^File is larger than/i.test(fallback)) return t(lang, "fileShrinkFail");
   if (/too long/i.test(fallback)) return t(lang, "fileTextTooBig");
   if (/Use a PDF/i.test(fallback)) return t(lang, "fileType");
+  if (/no invoice amounts were readable/i.test(fallback) || /No text was extracted from the file/i.test(fallback)) {
+    return t(lang, "unreadInvoice");
+  }
+  if (/failed the invoice schema/i.test(fallback) || /invoice fields could not be read/i.test(fallback)) {
+    return t(lang, "schemaRejected");
+  }
+  if (/no text layer/i.test(fallback)) return t(lang, "fileUnreadable");
   return fallback;
 }
 

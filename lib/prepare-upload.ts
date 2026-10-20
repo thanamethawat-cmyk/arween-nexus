@@ -19,7 +19,7 @@ export {
 };
 
 export type UploadKind = "image" | "pdf" | "text" | "unknown";
-export type PrepareCode = "fileTooBig" | "fileShrinkFail" | "fileTextTooBig" | "fileType";
+export type PrepareCode = "fileTooBig" | "fileShrinkFail" | "fileTextTooBig" | "fileType" | "fileUnreadable";
 
 export class PrepareError extends Error {
   constructor(readonly code: PrepareCode) {
@@ -102,7 +102,9 @@ async function preparePdf(file: File): Promise<File> {
         const png = await renderPageAsImage(pdf, page, { width: 1200 });
         bitmaps.push(await createImageBitmap(new Blob([png], { type: "image/png" })));
       }
-      const blob = await shrinkBitmap(stackBitmaps(bitmaps));
+      const stacked = stackBitmaps(bitmaps);
+      if (mostlyBlankCanvas(stacked)) throw new PrepareError("fileUnreadable");
+      const blob = await shrinkBitmap(stacked);
       return new File([blob], renamed(file.name, "jpg"), { type: "image/jpeg" });
     } finally {
       for (const bitmap of bitmaps) bitmap.close();
@@ -113,6 +115,23 @@ async function preparePdf(file: File): Promise<File> {
   } finally {
     await pdf.loadingTask.destroy();
   }
+}
+
+/** A page that is almost all white has nothing for the vision model to read. */
+export function mostlyBlankCanvas(canvas: HTMLCanvasElement, threshold = 0.985): boolean {
+  const ctx = canvas.getContext("2d");
+  if (!ctx || canvas.width < 1 || canvas.height < 1) return true;
+  const step = Math.max(1, Math.floor(Math.min(canvas.width, canvas.height) / 48));
+  let blank = 0;
+  let total = 0;
+  for (let y = 0; y < canvas.height; y += step) {
+    for (let x = 0; x < canvas.width; x += step) {
+      const [r = 0, g = 0, b = 0] = ctx.getImageData(x, y, 1, 1).data;
+      total += 1;
+      if (r > 248 && g > 248 && b > 248) blank += 1;
+    }
+  }
+  return total > 0 && blank / total >= threshold;
 }
 
 function stackBitmaps(bitmaps: ImageBitmap[]): HTMLCanvasElement {

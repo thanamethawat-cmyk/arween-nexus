@@ -4,7 +4,7 @@ import { ArrowUp, ClipboardList, History as HistoryIcon, Menu, Search, Settings 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-context";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { PrepareError, prepareUpload } from "@/lib/prepare-upload";
+import { PrepareError, prepareUpload, type PrepareCode } from "@/lib/prepare-upload";
 import { debtServiceMinor, maxPaymentMinor } from "@/lib/engine/money";
 import { formatDscr, formatMinor, majorToMinor, minorToMajorInput } from "@/lib/engine/format";
 import { findingText, outcomeLabel, quotaText, rulePurpose, t, type Lang } from "@/lib/i18n";
@@ -21,7 +21,7 @@ type AuditRow = {
 };
 
 type View = "review" | "decisions" | "history" | "parties" | "cash" | "settings";
-type BannerError = { code?: string; fallback: string; prepare?: "fileTooBig" | "fileShrinkFail" | "fileTextTooBig" | "fileType" };
+type BannerError = { code?: string; fallback: string; prepare?: PrepareCode };
 
 function bannerFromPayload(payload: { error?: unknown; code?: unknown }, fallback: string): BannerError {
   return {
