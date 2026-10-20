@@ -1,5 +1,5 @@
-import { NexusApp } from "@/components/nexus-app";
+import { AuthGate } from "@/components/auth-gate";
 
 export default function HomePage() {
-  return <NexusApp />;
+  return <AuthGate />;
 }

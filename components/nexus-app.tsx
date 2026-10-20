@@ -2,6 +2,7 @@
 
 import { ArrowUp, ClipboardList, History as HistoryIcon, Menu, Search, Settings as SettingsIcon, Upload, Users, Wallet, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth-context";
 import { debtServiceMinor, maxPaymentMinor } from "@/lib/engine/money";
 import { formatDscr, formatMinor, majorToMinor, minorToMajorInput } from "@/lib/engine/format";
 import { findingText, outcomeLabel, quotaText, rulePurpose, t, type Lang } from "@/lib/i18n";
@@ -1084,9 +1085,29 @@ function Settings({
   onActor: (value: string) => void;
   onReset: () => void;
 }) {
+  const auth = useAuth();
+  const sessionLabel = !auth
+    ? null
+    : auth.session.kind === "guest"
+      ? (lang === "th" ? "โหมดเดโม ไม่มีบัญชีถูกเก็บ" : "Demo mode. No account is stored.")
+      : (lang === "th"
+        ? `เข้าสู่ระบบเป็น ${auth.session.name} (${auth.session.email}) บัญชีนี้เป็นเรื่องสมมติ`
+        : `Signed in as ${auth.session.name} (${auth.session.email}). This account is fictional.`);
   return (
     <div className="max-w-2xl space-y-4">
       <p className="text-sm text-[#718EBF]">{t(lang, "settingsSub")}</p>
+      {auth && (
+        <div className={`space-y-3 p-5 text-sm ${CARD}`}>
+          <h3 className="font-semibold text-[#343C6A]">{lang === "th" ? "เซสชันจำลอง" : "Simulated session"}</h3>
+          <p className="text-[#718EBF]">{sessionLabel}</p>
+          {auth.session.kind === "user" && auth.session.consentAt && (
+            <p className="text-[#718EBF]">{lang === "th" ? "บันทึกความยินยอมเมื่อ" : "Consent stored at"} {auth.session.consentAt}</p>
+          )}
+          <button type="button" data-testid="auth-signout" onClick={auth.signOut} className="rounded-xl border border-[#d6deee] bg-white px-4 py-2.5 text-sm font-semibold text-[#343C6A]">
+            {auth.session.kind === "guest" ? (lang === "th" ? "ออกจากโหมดเดโม" : "Leave demo mode") : (lang === "th" ? "ออกจากระบบ" : "Sign out")}
+          </button>
+        </div>
+      )}
       <label className={`block p-5 text-xs text-[#718EBF] ${CARD}`}>
         {t(lang, "actor")}
         <input value={actor} onChange={(event) => onActor(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-[#e6ebf5] bg-[#F5F7FA] px-3 text-sm text-[#343C6A] outline-none" />

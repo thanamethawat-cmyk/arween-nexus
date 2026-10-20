@@ -8,6 +8,28 @@ Hosted on Vercel Hobby with Neon Free Postgres. Invoice extraction and Thai/Engl
 
 UI style inspired by BankDash Dashboard UI Kit (Figma Community).
 
+## Simulated sign-in
+
+Sign-in is simulated. There is no auth provider, no Google OAuth, no email delivery, and no SMS. These screens do not call a paid service. API routes stay open. A password you type for a new account stays in this browser’s `localStorage` and is not sent to the server.
+
+**Try without signing up (Demo mode)** is on the sign-in page. It opens the app with no account and no PDPA step. Judges can use every review feature this way. Login is never required.
+
+A signed-in demo (email and password, one-click fictional user, or Continue with Google) stops on a PDPA page. That page states the purpose, the data collected, the retention, the rights, and a contact, in Thai and English. Accept stays disabled until the checkbox is checked. The consent time is stored in this browser only.
+
+The verification step prints the code on the screen: `Demo code: 123456`. No message is sent.
+
+Fictional accounts, all with password `Demo1234`:
+
+| Name | Email | Phone |
+| --- | --- | --- |
+| Somsak Demo | demo@arween.test | +66812345678 |
+| Mali Fictional | mali@arween.test | +66819876543 |
+| Anan Example | anan@arween.test | +66912345678 |
+
+Continue with Google signs in as Niran Google, `niran.google@arween.test`. That account has no password. The consent contact, `privacy@arween.test`, is fictional and is not monitored.
+
+The session is the `arween-session` value in `localStorage`. A same-site cookie named `arween-demo` only records `guest` or `user`. It is not a credential.
+
 | Outcome | Meaning |
 | --- | --- |
 | `PAY` | Pay the invoice in full. Coverage stays at or above 1.25. |

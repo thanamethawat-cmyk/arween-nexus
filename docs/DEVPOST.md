@@ -39,7 +39,7 @@ Best Apps & Agents only. This is the only track for this submission.
 | Video | Record from [docs/VIDEO_SCRIPT.md](VIDEO_SCRIPT.md). Upload a public YouTube video under 3:00. No copyrighted music. |
 | Feedback | Paste [docs/FEEDBACK.md](FEEDBACK.md). |
 
-The demo is on Vercel Hobby and Neon Free. Inference is Nebius Token Factory. No login. Free for judges through the judging period.
+The demo is on Vercel Hobby and Neon Free. Inference is Nebius Token Factory. No login is required. An optional sign-in is simulated in the browser and does not call Google, email, or SMS. Free for judges through the judging period.
 
 ## What to Submit checklist
 
