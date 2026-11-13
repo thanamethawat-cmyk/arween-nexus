@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { t } from "../lib/i18n";
 import { contentTooLarge, demoLimits } from "../lib/demo-limits";
-import { fittedSize, pdfDelivery, uploadKind } from "../lib/prepare-upload";
+import { fittedSize, isLabeledInvoiceText, pdfDelivery, uploadKind } from "../lib/prepare-upload";
 import { MAX_IMAGE_EDGE, MAX_PAYLOAD_BYTES, MAX_SOURCE_BYTES, MIN_PDF_TEXT_CHARS } from "../lib/upload-limits";
 import { THEME_BOOT, THEME_KEY, themeFromPreference } from "../lib/theme";
 
@@ -50,9 +50,30 @@ describe("browser upload preparation", () => {
 
   it("rasterizes a scan and keeps a text PDF as text", () => {
     expect(pdfDelivery({ bytes: 20_000, textChars: MIN_PDF_TEXT_CHARS })).toBe("original");
-    expect(pdfDelivery({ bytes: MAX_PAYLOAD_BYTES + 1, textChars: 400 })).toBe("text");
     expect(pdfDelivery({ bytes: 80_000, textChars: 0 })).toBe("raster");
     expect(pdfDelivery({ bytes: MAX_PAYLOAD_BYTES + 1, textChars: 12 })).toBe("raster");
+  });
+
+  it("does not flatten an oversized camera PDF with a thin OCR layer to text", () => {
+    expect(
+      pdfDelivery({ bytes: MAX_PAYLOAD_BYTES + 1, textChars: 400, labeled: false }),
+    ).toBe("raster");
+    expect(
+      pdfDelivery({
+        bytes: MAX_PAYLOAD_BYTES + 1,
+        textChars: 400,
+        labeled: isLabeledInvoiceText("TAX INVOICE\nHarbor Supplies\nTotal 37,450.00"),
+      }),
+    ).toBe("raster");
+    const labeled = "SUPPLIER: Harbor Supplies\nINVOICE_NUMBER: INV-1044\nSUBTOTAL_MINOR: 3500000\nLINE: 1 | Cartons | 10000 | 25000 | 250000";
+    expect(isLabeledInvoiceText(labeled)).toBe(true);
+    expect(
+      pdfDelivery({
+        bytes: MAX_PAYLOAD_BYTES + 1,
+        textChars: labeled.replace(/\s/g, "").length,
+        labeled: true,
+      }),
+    ).toBe("text");
   });
 
   it("states the 25 MB limit in Thai and English", () => {

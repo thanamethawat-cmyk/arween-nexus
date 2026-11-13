@@ -61,12 +61,21 @@ export async function prepareUpload(file: File): Promise<File> {
   return shrinkImage(file);
 }
 
-/** Text PDFs stay text. A scan, at any size, becomes a page image so the vision model can read it. */
-export function pdfDelivery(options: { bytes: number; textChars: number }): "original" | "text" | "raster" {
-  if (options.textChars >= MIN_PDF_TEXT_CHARS) {
-    return options.bytes <= MAX_PAYLOAD_BYTES ? "original" : "text";
-  }
-  return "raster";
+/** True when extractText already produced the labeled sample format, not camera-PDF OCR junk. */
+export function isLabeledInvoiceText(text: string): boolean {
+  return /^(LINE:|SUBTOTAL_MINOR:|TOTAL_MINOR:|INVOICE_NUMBER:|SUPPLIER:)/m.test(text);
+}
+
+/**
+ * Text PDFs stay text. A scan, at any size, becomes a page image so the vision model can read it.
+ * Over the serverless body cap, only a labeled invoice may be flattened to extracted text.
+ * A camera PDF with a thin OCR layer must be rasterized — stripping it to those characters
+ * discards the page image and lets the extractor invent internally consistent amounts.
+ */
+export function pdfDelivery(options: { bytes: number; textChars: number; labeled?: boolean }): "original" | "text" | "raster" {
+  if (options.textChars < MIN_PDF_TEXT_CHARS) return "raster";
+  if (options.bytes <= MAX_PAYLOAD_BYTES) return "original";
+  return options.labeled ? "text" : "raster";
 }
 
 async function shrinkImage(file: File): Promise<File> {
@@ -90,7 +99,11 @@ async function preparePdf(file: File): Promise<File> {
   try {
     const extracted = await extractText(pdf, { mergePages: true });
     const text = (Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "")).trim();
-    const delivery = pdfDelivery({ bytes: file.size, textChars: text.replace(/\s/g, "").length });
+    const delivery = pdfDelivery({
+      bytes: file.size,
+      textChars: text.replace(/\s/g, "").length,
+      labeled: isLabeledInvoiceText(text),
+    });
     if (delivery === "original") return file;
     if (delivery === "text") {
       return new File([text.slice(0, MAX_TEXT_CHARS)], renamed(file.name, "txt"), { type: "text/plain" });
