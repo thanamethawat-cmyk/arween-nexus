@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledHeaderDrift, parseStrictInvoice } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,36 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+describe("labeled header drift", () => {
+  it("returns null when sample A header integers are copied exactly", () => {
+    expect(labeledHeaderDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a 0% VAT rewrite that would still pass invoice math", () => {
+    const zeroVat = {
+      ...sampleInvoices.A,
+      vatRateBps: 0,
+      vatMinor: 0n,
+      totalMinor: sampleInvoices.A.subtotalMinor,
+    };
+    expect(labeledHeaderDrift(invoiceToText(sampleInvoices.A), zeroVat)).toMatch(
+      /VAT_MINOR is printed as 245000\. The JSON returned 0\./,
+    );
+  });
+
+  it("flags a rewritten VAT_RATE_BPS even when totals still match 7%", () => {
+    const wrongRate = { ...sampleInvoices.A, vatRateBps: 7 };
+    expect(labeledHeaderDrift(invoiceToText(sampleInvoices.A), wrongRate)).toMatch(
+      /VAT_RATE_BPS is printed as 700/,
+    );
+  });
+
+  it("returns null for a transcript without labeled header integers", () => {
+    expect(
+      labeledHeaderDrift("Harbor Supplies invoice INV-1044 total 37,450.00 THB VAT 7%", sampleInvoices.A),
+    ).toBeNull();
   });
 });

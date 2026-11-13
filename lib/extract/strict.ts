@@ -178,3 +178,44 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+const LABELED_HEADER_FIELDS = [
+  "SUBTOTAL_MINOR",
+  "VAT_MINOR",
+  "TOTAL_MINOR",
+  "VAT_RATE_BPS",
+  "CONFIDENCE_BPS",
+] as const;
+
+/**
+ * Returns a reason when labeled header integers were rewritten.
+ * Transcripts without those labels skip this check.
+ */
+export function labeledHeaderDrift(source: string, invoice: InvoiceInput): string | null {
+  const printed = new Map<string, string>();
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const splitAt = line.indexOf(":");
+    if (splitAt < 0) continue;
+    const key = line.slice(0, splitAt).trim().toUpperCase();
+    if (!(LABELED_HEADER_FIELDS as readonly string[]).includes(key)) continue;
+    if (!printed.has(key)) printed.set(key, line.slice(splitAt + 1).trim());
+  }
+  if (printed.size === 0) return null;
+
+  const copied: Record<(typeof LABELED_HEADER_FIELDS)[number], string> = {
+    SUBTOTAL_MINOR: invoice.subtotalMinor.toString(),
+    VAT_MINOR: invoice.vatMinor.toString(),
+    TOTAL_MINOR: invoice.totalMinor.toString(),
+    VAT_RATE_BPS: invoice.vatRateBps.toString(),
+    CONFIDENCE_BPS: invoice.extractionConfidenceBps.toString(),
+  };
+  for (const key of LABELED_HEADER_FIELDS) {
+    const value = printed.get(key);
+    if (value === undefined) continue;
+    if (value !== copied[key]) {
+      return `${key} is printed as ${value}. The JSON returned ${copied[key]}.`;
+    }
+  }
+  return null;
+}

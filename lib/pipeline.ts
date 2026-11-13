@@ -5,7 +5,7 @@ import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
 import { hasInvoiceSignal, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
 import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
-import { parseStrictInvoice } from "./extract/strict";
+import { labeledHeaderDrift, parseStrictInvoice } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
 import { appConfig } from "./env";
 import {
@@ -292,7 +292,9 @@ async function extractInvoice(input: {
       } catch (error) {
         parsed = { ok: false, reason: error instanceof Error ? error.message : "model_json_missing", missing: [] };
       }
-      drift = parsed.ok ? labeledIntegerDrift(userText, parsed.invoice) : null;
+      drift = parsed.ok
+        ? labeledIntegerDrift(userText, parsed.invoice) ?? labeledHeaderDrift(userText, parsed.invoice)
+        : null;
       if (parsed.ok) kept = parsed.invoice;
       invocations.push({
         purpose: "extract",

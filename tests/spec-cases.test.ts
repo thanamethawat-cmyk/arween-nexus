@@ -158,6 +158,20 @@ describe("reject-first and warn rules", () => {
     expect(result.winningRuleId).toBe("RULE-PAY-001");
     expect(result.findings.find((row) => row.ruleId === "RULE-PRICE-001")?.status).toBe("fail");
   });
+
+  it("would PAY a 0% VAT rewrite of sample A if extraction accepted it", () => {
+    const invoice = {
+      ...sampleInvoices.A,
+      vatRateBps: 0,
+      vatMinor: 0n,
+      totalMinor: 3_500_000n,
+      lines: sampleInvoices.A.lines.map((line) => ({ ...line })),
+    };
+    const result = decide(inputFor("A", { invoice }));
+    expect(result.outcome).toBe("PAY");
+    expect(result.winningRuleId).toBe("RULE-PAY-001");
+    expect(result.findings.find((row) => row.ruleId === "RULE-INV-002")?.status).toBe("pass");
+  });
 });
 
 describe("hallucination validator", () => {
