@@ -16,3 +16,19 @@ export const UNREADABLE_INVOICE =
 
 export const SCHEMA_REJECTED =
   "The invoice fields could not be read. No amount was guessed.";
+
+/**
+ * Longest transcript sent to the extractor. The paste cap is larger (200k), so a silent
+ * slice would drop later LINE rows while labeledIntegerDrift only sees the prefix.
+ */
+export const MAX_EXTRACT_SOURCE_CHARS = 40_000;
+
+export const SOURCE_TRUNCATED =
+  "This invoice is too long to read without dropping later amounts. No amount was guessed.";
+
+export function extractSourceForModel(text: string): { ok: true; text: string } | { ok: false; error: string } {
+  if (text.length > MAX_EXTRACT_SOURCE_CHARS) {
+    return { ok: false, error: SOURCE_TRUNCATED };
+  }
+  return { ok: true, text };
+}

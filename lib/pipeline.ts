@@ -3,7 +3,12 @@ import { validateExplanation, type ExplanationDraft } from "./engine/hallucinati
 import { templateExplanation } from "./engine/templates";
 import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
-import { hasInvoiceSignal, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
+import {
+  extractSourceForModel,
+  hasInvoiceSignal,
+  SCHEMA_REJECTED,
+  UNREADABLE_INVOICE,
+} from "./extract/readable";
 import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
 import { parseStrictInvoice } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
@@ -238,7 +243,9 @@ async function extractInvoice(input: {
       });
       if (!readable) return { invoice: null, invocations, error: UNREADABLE_INVOICE };
     }
-    const userText = text.slice(0, 40_000);
+    const bounded = extractSourceForModel(text);
+    if (!bounded.ok) return { invoice: null, invocations, error: bounded.error };
+    const userText = bounded.text;
     if (!hasInvoiceSignal(userText)) {
       return { invoice: null, invocations, error: UNREADABLE_INVOICE };
     }
