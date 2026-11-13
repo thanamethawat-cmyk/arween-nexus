@@ -12,7 +12,7 @@ import {
 } from "../lib/engine/money";
 import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledLineCountDrift, parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
 import { buildRetrievalQuery } from "../lib/tavily/query";
 
@@ -158,6 +158,28 @@ describe("reject-first and warn rules", () => {
     expect(result.winningRuleId).toBe("RULE-PAY-001");
     expect(result.findings.find((row) => row.ruleId === "RULE-PRICE-001")?.status).toBe("fail");
   });
+
+  it("would PAY a one-line rewrite of sample A if extraction dropped a LINE row", () => {
+    const collapsed = {
+      ...sampleInvoices.A,
+      subtotalMinor: 1_000_000n,
+      vatMinor: 70_000n,
+      totalMinor: 1_070_000n,
+      lines: [
+        {
+          lineNo: 1,
+          description: "Combined goods",
+          quantityMillis: 1_000n,
+          unitPriceMinor: 1_000_000n,
+          lineTotalMinor: 1_000_000n,
+        },
+      ],
+    };
+    const result = decide(inputFor("A", { invoice: collapsed }));
+    expect(result.outcome).toBe("PAY");
+    expect(result.winningRuleId).toBe("RULE-PAY-001");
+    expect(result.findings.find((row) => row.ruleId === "RULE-INV-002")?.status).toBe("pass");
+  });
 });
 
 describe("hallucination validator", () => {
@@ -218,6 +240,35 @@ describe("strict sample parser", () => {
       if (!parsed.ok) return;
       expect(parsed.invoice).toEqual(sampleInvoices[sample]);
     }
+  });
+});
+
+describe("labeled LINE row count", () => {
+  it("rejects a schema-valid extract that drops a printed LINE row", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    const collapsed = {
+      ...sampleInvoices.A,
+      subtotalMinor: 1_000_000n,
+      vatMinor: 70_000n,
+      totalMinor: 1_070_000n,
+      lines: [
+        {
+          lineNo: 1,
+          description: "Combined goods",
+          quantityMillis: 1_000n,
+          unitPriceMinor: 1_000_000n,
+          lineTotalMinor: 1_000_000n,
+        },
+      ],
+    };
+    expect(labeledLineCountDrift(source, collapsed)).toMatch(/printed 2 LINE rows/i);
+    expect(labeledLineCountDrift(source, sampleInvoices.A)).toBeNull();
+  });
+
+  it("skips transcripts that never used the LINE label", () => {
+    expect(
+      labeledLineCountDrift("Invoice INV-1044 total 37450.00", sampleInvoices.A),
+    ).toBeNull();
   });
 });
 

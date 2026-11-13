@@ -178,3 +178,22 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/**
+ * Returns a reason when labeled LINE rows were dropped or invented.
+ * Transcripts without LINE: rows skip this check.
+ */
+export function labeledLineCountDrift(source: string, invoice: InvoiceInput): string | null {
+  let printed = 0;
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("LINE:")) continue;
+    const parts = line.slice("LINE:".length).split("|").map((part) => part.trim());
+    if (parts.length === 5) printed += 1;
+  }
+  if (printed === 0) return null;
+  if (printed !== invoice.lines.length) {
+    return `printed ${printed} LINE rows. The JSON returned ${invoice.lines.length}.`;
+  }
+  return null;
+}
