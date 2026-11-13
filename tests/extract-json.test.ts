@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledCurrencyDrift, parseStrictInvoice } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,27 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+describe("labeled currency drift", () => {
+  it("returns null when sample A currency is copied exactly", () => {
+    expect(labeledCurrencyDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a rewritten currency that would skip the currency mismatch hold", () => {
+    const asThb = {
+      ...sampleInvoices.A,
+      currency: "THB",
+      lines: sampleInvoices.A.lines.map((line) => ({ ...line })),
+    };
+    const usdSource = invoiceToText({ ...asThb, currency: "USD" });
+    expect(labeledCurrencyDrift(usdSource, asThb)).toMatch(
+      /CURRENCY is printed as USD\. The JSON returned THB\./,
+    );
+  });
+
+  it("returns null for a transcript without a labeled CURRENCY row", () => {
+    expect(labeledCurrencyDrift("Harbor Supplies invoice total 37,450.00 USD", sampleInvoices.A)).toBeNull();
   });
 });

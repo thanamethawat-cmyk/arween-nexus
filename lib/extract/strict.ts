@@ -178,3 +178,22 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/** Returns a reason when a labeled CURRENCY row was rewritten. Transcripts without that label skip this check. */
+export function labeledCurrencyDrift(source: string, invoice: InvoiceInput): string | null {
+  let printed: string | undefined;
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const splitAt = line.indexOf(":");
+    if (splitAt < 0) continue;
+    const key = line.slice(0, splitAt).trim().toUpperCase();
+    if (key !== "CURRENCY") continue;
+    printed = line.slice(splitAt + 1).trim();
+    break;
+  }
+  if (printed === undefined || printed.length === 0) return null;
+  if (printed !== invoice.currency) {
+    return `CURRENCY is printed as ${printed}. The JSON returned ${invoice.currency}.`;
+  }
+  return null;
+}
