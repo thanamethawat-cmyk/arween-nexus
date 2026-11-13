@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledIntegerDrift, parseStrictInvoice } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,33 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+describe("labeled integer drift", () => {
+  it("returns null when sample A LINE integers are copied exactly", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    expect(labeledIntegerDrift(source, sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a changed unitPriceMinor on line 0", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    const drifted = {
+      ...sampleInvoices.A,
+      lines: sampleInvoices.A.lines.map((line, index) =>
+        index === 0 ? { ...line, unitPriceMinor: 99_999n } : line,
+      ),
+    };
+    expect(labeledIntegerDrift(source, drifted)).toMatch(/unit_price_minor is printed as 25000/);
+  });
+
+  it("flags a dropped LINE row", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    const dropped = { ...sampleInvoices.A, lines: sampleInvoices.A.lines.slice(0, 1) };
+    expect(labeledIntegerDrift(source, dropped)).toMatch(/Printed LINE count is 2/);
+  });
+
+  it("returns null for a transcript without LINE rows", () => {
+    expect(labeledIntegerDrift("Harbor Supplies invoice INV-1044 total 37450 THB", sampleInvoices.A)).toBeNull();
   });
 });

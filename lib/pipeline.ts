@@ -5,7 +5,7 @@ import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
 import { hasInvoiceSignal, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
 import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
-import { parseStrictInvoice } from "./extract/strict";
+import { labeledIntegerDrift, parseStrictInvoice } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
 import { appConfig } from "./env";
 import {
@@ -244,7 +244,6 @@ async function extractInvoice(input: {
     }
     let parsed: ReturnType<typeof parseStrictInvoice> = { ok: false, reason: "not_called", missing: [] };
     let drift: string | null = null;
-    let kept: InvoiceInput | null = null;
     const models = [config.extractModel, config.explainFallbackModel];
     for (let attempt = 0; attempt < models.length; attempt += 1) {
       const model = models[attempt] ?? config.extractModel;
@@ -293,7 +292,6 @@ async function extractInvoice(input: {
         parsed = { ok: false, reason: error instanceof Error ? error.message : "model_json_missing", missing: [] };
       }
       drift = parsed.ok ? labeledIntegerDrift(userText, parsed.invoice) : null;
-      if (parsed.ok) kept = parsed.invoice;
       invocations.push({
         purpose: "extract",
         provider: "nebius",
@@ -307,7 +305,6 @@ async function extractInvoice(input: {
       });
       if (parsed.ok && !drift) return { invoice: parsed.invoice, invocations };
     }
-    if (kept) return { invoice: kept, invocations };
     return { invoice: null, invocations, error: SCHEMA_REJECTED };
   } catch (error) {
     if (error instanceof AnalyzeError) throw error;
@@ -492,33 +489,6 @@ async function attemptExplanation(
       },
     };
   }
-}
-
-function labeledIntegerDrift(source: string, invoice: InvoiceInput): string | null {
-  const printed: string[][] = [];
-  for (const rawLine of source.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith("LINE:")) continue;
-    const parts = line.slice("LINE:".length).split("|").map((part) => part.trim());
-    if (parts.length === 5) printed.push(parts);
-  }
-  if (printed.length === 0 || printed.length !== invoice.lines.length) return null;
-  for (let index = 0; index < printed.length; index += 1) {
-    const parts = printed[index] ?? [];
-    const line = invoice.lines[index];
-    if (!line) return null;
-    const expected: Array<[string, string, string]> = [
-      ["quantity_millis", parts[2] ?? "", line.quantityMillis.toString()],
-      ["unit_price_minor", parts[3] ?? "", line.unitPriceMinor.toString()],
-      ["line_total_minor", parts[4] ?? "", line.lineTotalMinor.toString()],
-    ];
-    for (const [field, printedValue, copied] of expected) {
-      if (printedValue !== copied) {
-        return `LINE ${index + 1} ${field} is printed as ${printedValue}. The JSON returned ${copied}.`;
-      }
-    }
-  }
-  return null;
 }
 
 function parseExplanation(raw: string): ExplanationDraft {
