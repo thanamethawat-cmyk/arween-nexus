@@ -178,3 +178,41 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/**
+ * Comma-grouped money ("37,450" or "37,450.00") or a 4+ digit major with cents ("37450.00").
+ * Thai invoices often omit satang when it is .00. Unit prices like "250.00" are ignored.
+ */
+const PRINTED_MAJOR_MONEY_RE = /\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d{4,}\.\d{2}/g;
+
+function printedMajorMoneyMinor(source: string): bigint[] {
+  const found: bigint[] = [];
+  const matches = source.match(PRINTED_MAJOR_MONEY_RE) ?? [];
+  for (const token of matches) {
+    const cleaned = token.replace(/,/g, "");
+    if (cleaned.includes(".")) {
+      const [whole, frac] = cleaned.split(".");
+      if (!whole || !frac || frac.length !== 2) continue;
+      found.push(BigInt(whole) * 100n + BigInt(frac));
+    } else {
+      found.push(BigInt(cleaned) * 100n);
+    }
+  }
+  return found;
+}
+
+/**
+ * When a vision/OCR transcript prints a grand-total-sized amount (37,450) but the
+ * extract JSON uses a smaller internally consistent total, PAY uses the rewrite.
+ * Labeled sample integers (TOTAL_MINOR: 3745000) skip this check.
+ */
+export function printedTotalDrift(source: string, invoice: InvoiceInput): string | null {
+  const printed = printedMajorMoneyMinor(source);
+  if (printed.length === 0) return null;
+  let max = printed[0] ?? 0n;
+  for (const value of printed) {
+    if (value > max) max = value;
+  }
+  if (invoice.totalMinor === max) return null;
+  return `Printed amount ${max.toString()} minor units is larger than JSON total_minor ${invoice.totalMinor.toString()}.`;
+}

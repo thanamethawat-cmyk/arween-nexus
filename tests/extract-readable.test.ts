@@ -7,6 +7,7 @@ describe("invoice readability signal", () => {
     expect(hasInvoiceSignal(invoiceToText(sampleInvoices.A))).toBe(true);
     expect(hasInvoiceSignal("Total 37,450.00 THB\nTax ID 0105560000001\nInvoice INV-1")).toBe(true);
     expect(hasInvoiceSignal("ยอดรวมทั้งสิ้น 37,450.00 บาท")).toBe(true);
+    expect(hasInvoiceSignal("ยอดรวมทั้งสิ้น 37,450 บาท")).toBe(true);
   });
 
   it("rejects blank-page and empty extractor placeholders", () => {
