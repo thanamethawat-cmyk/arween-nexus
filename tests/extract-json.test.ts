@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { parseStrictInvoice, printedTotalDrift } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,60 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+const unlabeledHarbor = [
+  "TAX INVOICE",
+  "Harbor Supplies Co., Ltd.",
+  "Tax ID 0105560000001",
+  "Invoice INV-1044",
+  "Cartons 100 x 250.00 = 25,000.00",
+  "Tape rolls 20 x 500.00 = 10,000.00",
+  "Subtotal 35,000.00",
+  "VAT 7% 2,450.00",
+  "Total 37,450.00 THB",
+].join("\n");
+
+const understatedHarbor = {
+  ...sampleInvoices.A,
+  subtotalMinor: 1_000_000n,
+  vatMinor: 70_000n,
+  totalMinor: 1_070_000n,
+  lines: [
+    {
+      lineNo: 1,
+      description: "Cartons",
+      quantityMillis: 1_000n,
+      unitPriceMinor: 1_000_000n,
+      lineTotalMinor: 1_000_000n,
+    },
+  ],
+};
+
+describe("printed total drift", () => {
+  it("returns null when sample A labeled integers have no decimal money tokens", () => {
+    expect(printedTotalDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("returns null when the extract total matches the largest printed 37,450.00", () => {
+    expect(printedTotalDrift(unlabeledHarbor, sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a schema-valid 10,700 rewrite of an unlabeled 37,450.00 invoice", () => {
+    expect(printedTotalDrift(unlabeledHarbor, understatedHarbor)).toMatch(
+      /Printed amount 3745000 minor units is larger than JSON total_minor 1070000/,
+    );
+  });
+
+  it("flags using a printed line total as the invoice total", () => {
+    const lineAsTotal = {
+      ...sampleInvoices.A,
+      subtotalMinor: 2_500_000n,
+      vatMinor: 175_000n,
+      totalMinor: 2_675_000n,
+      lines: [sampleInvoices.A.lines[0]!],
+    };
+    expect(printedTotalDrift(unlabeledHarbor, lineAsTotal)).toMatch(/3745000/);
   });
 });
