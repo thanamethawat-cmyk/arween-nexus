@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledIdentityDrift, parseStrictInvoice } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,31 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+describe("labeled identity drift", () => {
+  it("returns null when sample A invoice number and tax id are copied exactly", () => {
+    expect(labeledIdentityDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a rewritten invoice number that would skip the duplicate rule", () => {
+    const renamed = { ...sampleInvoices.A, invoiceNumber: "INV-1044-A" };
+    expect(labeledIdentityDrift(invoiceToText(sampleInvoices.A), renamed)).toMatch(
+      /INVOICE_NUMBER is printed as INV-1044\. The JSON returned INV-1044-A\./,
+    );
+  });
+
+  it("flags a rewritten tax id", () => {
+    const otherTax = { ...sampleInvoices.A, supplierTaxId: "0105590009001" };
+    expect(labeledIdentityDrift(invoiceToText(sampleInvoices.A), otherTax)).toMatch(
+      /TAX_ID is printed as 0105560000001\. The JSON returned 0105590009001\./,
+    );
+  });
+
+  it("returns null for a transcript without labeled identity fields", () => {
+    expect(
+      labeledIdentityDrift("Harbor Supplies invoice total 37,450.00 THB", sampleInvoices.A),
+    ).toBeNull();
   });
 });

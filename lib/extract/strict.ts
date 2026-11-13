@@ -178,3 +178,35 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+const IDENTITY_FIELDS = ["INVOICE_NUMBER", "TAX_ID"] as const;
+
+/**
+ * Returns a reason when a labeled invoice number or tax id was rewritten.
+ * Transcripts without those labels skip this check.
+ */
+export function labeledIdentityDrift(source: string, invoice: InvoiceInput): string | null {
+  const printed = new Map<string, string>();
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const splitAt = line.indexOf(":");
+    if (splitAt < 0) continue;
+    const key = line.slice(0, splitAt).trim().toUpperCase();
+    if (!(IDENTITY_FIELDS as readonly string[]).includes(key)) continue;
+    if (!printed.has(key)) printed.set(key, line.slice(splitAt + 1).trim());
+  }
+  if (printed.size === 0) return null;
+
+  const copied = {
+    INVOICE_NUMBER: invoice.invoiceNumber.trim(),
+    TAX_ID: (invoice.supplierTaxId ?? "").trim(),
+  };
+  for (const key of IDENTITY_FIELDS) {
+    const value = printed.get(key);
+    if (value === undefined) continue;
+    if (value !== copied[key]) {
+      return `${key} is printed as ${value}. The JSON returned ${copied[key] || "(empty)"}.`;
+    }
+  }
+  return null;
+}

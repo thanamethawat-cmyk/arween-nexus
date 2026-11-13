@@ -158,6 +158,18 @@ describe("reject-first and warn rules", () => {
     expect(result.winningRuleId).toBe("RULE-PAY-001");
     expect(result.findings.find((row) => row.ruleId === "RULE-PRICE-001")?.status).toBe("fail");
   });
+
+  it("would PAY a second copy of sample A if extraction rewrote INVOICE_NUMBER", () => {
+    const invoice = {
+      ...sampleInvoices.A,
+      invoiceNumber: "INV-1044-A",
+      lines: sampleInvoices.A.lines.map((line) => ({ ...line })),
+    };
+    const result = decide(inputFor("A", { invoice, duplicateInvoice: false }));
+    expect(result.outcome).toBe("PAY");
+    expect(result.winningRuleId).toBe("RULE-PAY-001");
+    expect(result.findings.find((row) => row.ruleId === "RULE-INV-001")?.status).toBe("pass");
+  });
 });
 
 describe("hallucination validator", () => {
