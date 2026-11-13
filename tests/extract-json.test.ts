@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { parseStrictInvoice, printedIdentityDrift } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,54 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+const unlabeledHarbor = [
+  "TAX INVOICE",
+  "Harbor Supplies Co., Ltd.",
+  "Tax ID 0105560000001",
+  "Invoice INV-1044",
+  "Cartons 100 x 250.00 = 25,000.00",
+  "Tape rolls 20 x 500.00 = 10,000.00",
+  "Subtotal 35,000.00",
+  "VAT 7% 2,450.00",
+  "Total 37,450.00 THB",
+].join("\n");
+
+describe("printed identity drift", () => {
+  it("returns null when labeled sample identity is left to the labeled checker", () => {
+    expect(printedIdentityDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("returns null when the extract copies INV-1044 and the printed tax id", () => {
+    expect(printedIdentityDrift(unlabeledHarbor, sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a rewritten invoice number that would skip the duplicate rule", () => {
+    const renamed = { ...sampleInvoices.A, invoiceNumber: "INV-1044-A" };
+    expect(printedIdentityDrift(unlabeledHarbor, renamed)).toMatch(
+      /Printed invoice number INV-1044 was rewritten as INV-1044-A\./,
+    );
+  });
+
+  it("flags a rewritten tax id that would create a second counterparty", () => {
+    const otherTax = { ...sampleInvoices.A, supplierTaxId: "0105590009001" };
+    expect(printedIdentityDrift(unlabeledHarbor, otherTax)).toMatch(
+      /Printed tax id 0105560000001 was rewritten as 0105590009001\./,
+    );
+  });
+
+  it("flags a dropped tax id", () => {
+    const dropped = { ...sampleInvoices.A, supplierTaxId: null };
+    expect(printedIdentityDrift(unlabeledHarbor, dropped)).toMatch(
+      /Printed tax id 0105560000001 was rewritten as \(empty\)\./,
+    );
+  });
+
+  it("reads a Thai เลขที่ invoice number", () => {
+    const thai = "เลขที่ INV-1044\nเลขประจำตัวผู้เสียภาษี 0105560000001\nยอดรวมทั้งสิ้น 37,450.00 บาท";
+    const renamed = { ...sampleInvoices.A, invoiceNumber: "INV-2208" };
+    expect(printedIdentityDrift(thai, renamed)).toMatch(/INV-1044 was rewritten as INV-2208/);
   });
 });

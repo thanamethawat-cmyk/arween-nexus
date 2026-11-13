@@ -178,3 +178,36 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/** Labeled paste already has INVOICE_NUMBER:/TAX_ID:; those are a separate check. */
+const LABELED_IDENTITY_RE = /(?:^|\n)\s*(INVOICE_NUMBER|TAX_ID)\s*:/;
+
+/**
+ * Vision/OCR transcripts print "Invoice INV-1044" or "เลขที่ INV-1044", not INVOICE_NUMBER:.
+ * Require a letter prefix so dates like 2026-10-01 are not treated as invoice numbers.
+ * Do not use an ASCII word boundary: Thai labels would then fail to match.
+ */
+const PRINTED_INVOICE_NO_RE =
+  /(?:invoice(?:\s*(?:no\.?|number|#))?|เลขที่(?:ใบแจ้งหนี้)?)\s*[:.]?\s*([A-Z]{2,8}-\d{3,12})/i;
+
+/** 13-digit Thai taxpayer ids as printed on vision/OCR transcripts. */
+const PRINTED_TAX_ID_RE = /(?:tax\s*id|เลขประจำตัวผู้เสียภาษี)\s*[:.]?\s*(\d{13})/i;
+
+/**
+ * When a vision/OCR transcript prints INV-1044 / tax id 0105560000001 but the extract JSON
+ * rewrites them, RULE-INV-001 looks up the new identity and can PAY a second copy.
+ */
+export function printedIdentityDrift(source: string, invoice: InvoiceInput): string | null {
+  if (LABELED_IDENTITY_RE.test(source)) return null;
+
+  const printedNumber = source.match(PRINTED_INVOICE_NO_RE)?.[1];
+  if (printedNumber && printedNumber !== invoice.invoiceNumber.trim()) {
+    return `Printed invoice number ${printedNumber} was rewritten as ${invoice.invoiceNumber.trim()}.`;
+  }
+
+  const printedTax = source.match(PRINTED_TAX_ID_RE)?.[1];
+  if (printedTax && printedTax !== (invoice.supplierTaxId ?? "").trim()) {
+    return `Printed tax id ${printedTax} was rewritten as ${invoice.supplierTaxId?.trim() || "(empty)"}.`;
+  }
+  return null;
+}
