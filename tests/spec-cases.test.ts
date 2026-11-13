@@ -12,6 +12,7 @@ import {
 } from "../lib/engine/money";
 import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
+import { invoiceDuplicateLockKey } from "../lib/db";
 import { parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
 import { buildRetrievalQuery } from "../lib/tavily/query";
@@ -228,6 +229,31 @@ describe("retrieval query", () => {
     expect(query).toBe('"Harbor Supplies Co., Ltd." 0105560000001');
     expect(query.includes(invoice.totalMinor.toString())).toBe(false);
     expect(query.includes("3745000")).toBe(false);
+  });
+});
+
+describe("duplicate persist lock key", () => {
+  it("uses tax id so a name rewrite cannot split the lock", () => {
+    const invoice = sampleInvoices.A;
+    const first = invoiceDuplicateLockKey("biz_demo", invoice);
+    const renamed = invoiceDuplicateLockKey("biz_demo", {
+      ...invoice,
+      supplierLegalName: "Harbor Supplies Limited",
+    });
+    const otherNumber = invoiceDuplicateLockKey("biz_demo", {
+      ...invoice,
+      invoiceNumber: "INV-1045",
+    });
+    expect(first).toBe(`biz_demo|${invoice.supplierTaxId}|${invoice.invoiceNumber}`);
+    expect(renamed).toBe(first);
+    expect(otherNumber).not.toBe(first);
+  });
+
+  it("falls back to lowercase legal name when tax id is missing", () => {
+    const invoice = { ...sampleInvoices.A, supplierTaxId: null };
+    expect(invoiceDuplicateLockKey("biz_demo", invoice)).toBe(
+      `biz_demo|${invoice.supplierLegalName.toLowerCase()}|${invoice.invoiceNumber}`,
+    );
   });
 });
 

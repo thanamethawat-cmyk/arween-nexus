@@ -528,6 +528,15 @@ export type AnalysisWrite = {
   invocations: InvocationDraft[];
 };
 
+/** Serializes persist for one supplier invoice so RULE-INV-001 cannot miss a concurrent insert. */
+export function invoiceDuplicateLockKey(
+  businessId: string,
+  invoice: Pick<InvoiceInput, "supplierTaxId" | "supplierLegalName" | "invoiceNumber">,
+): string {
+  const party = invoice.supplierTaxId?.trim() || invoice.supplierLegalName.trim().toLowerCase();
+  return `${businessId}|${party}|${invoice.invoiceNumber}`;
+}
+
 export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionId: string; replayed: boolean }> {
   await ensureDb();
   const pool = getPool();
@@ -543,6 +552,13 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
       await client.query("COMMIT");
       return { decisionId: existing.rows[0].decision_id, replayed: true };
     }
+
+    // Idempotency locks only serialize retries of the same key. Two tabs generate
+    // distinct UUIDs, so without this lock both transactions can pass duplicateOn
+    // before either INSERT and both propose PAY for the same issued invoice.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      invoiceDuplicateLockKey(write.context.businessId, write.invoice),
+    ]);
 
     const counterpartyId = await upsertCounterparty(client, write.context.businessId, write.invoice);
     const duplicateNow = await duplicateOn(client, write.context.businessId, counterpartyId, write.invoice.invoiceNumber);
