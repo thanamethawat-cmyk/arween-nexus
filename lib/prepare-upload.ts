@@ -1,3 +1,4 @@
+import { isLabeledInvoiceText } from "./extract/readable";
 import {
   MAX_IMAGE_EDGE,
   MAX_PAYLOAD_BYTES,
@@ -61,12 +62,14 @@ export async function prepareUpload(file: File): Promise<File> {
   return shrinkImage(file);
 }
 
-/** Text PDFs stay text. A scan, at any size, becomes a page image so the vision model can read it. */
-export function pdfDelivery(options: { bytes: number; textChars: number }): "original" | "text" | "raster" {
-  if (options.textChars >= MIN_PDF_TEXT_CHARS) {
-    return options.bytes <= MAX_PAYLOAD_BYTES ? "original" : "text";
-  }
-  return "raster";
+/**
+ * Labeled sample PDFs stay text. Any other PDF — including a camera scan with a thin
+ * OCR layer — becomes a page image so the vision model sees the invoice, not invented amounts.
+ * Over the serverless body cap, only the labeled format may be flattened to extracted text.
+ */
+export function pdfDelivery(options: { bytes: number; textChars: number; labeled?: boolean }): "original" | "text" | "raster" {
+  if (options.textChars < MIN_PDF_TEXT_CHARS || !options.labeled) return "raster";
+  return options.bytes <= MAX_PAYLOAD_BYTES ? "original" : "text";
 }
 
 async function shrinkImage(file: File): Promise<File> {
@@ -90,7 +93,11 @@ async function preparePdf(file: File): Promise<File> {
   try {
     const extracted = await extractText(pdf, { mergePages: true });
     const text = (Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "")).trim();
-    const delivery = pdfDelivery({ bytes: file.size, textChars: text.replace(/\s/g, "").length });
+    const delivery = pdfDelivery({
+      bytes: file.size,
+      textChars: text.replace(/\s/g, "").length,
+      labeled: isLabeledInvoiceText(text),
+    });
     if (delivery === "original") return file;
     if (delivery === "text") {
       return new File([text.slice(0, MAX_TEXT_CHARS)], renamed(file.name, "txt"), { type: "text/plain" });

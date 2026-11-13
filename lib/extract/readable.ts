@@ -1,3 +1,8 @@
+/** True when extractText already produced the labeled sample format, not camera-PDF OCR junk. */
+export function isLabeledInvoiceText(text: string): boolean {
+  return /^(LINE:|SUBTOTAL_MINOR:|TOTAL_MINOR:|INVOICE_NUMBER:|SUPPLIER:)/m.test(text);
+}
+
 /** True when the transcript looks like it contains a printed invoice, not a blank page. */
 export function hasInvoiceSignal(text: string): boolean {
   const trimmed = text.trim();

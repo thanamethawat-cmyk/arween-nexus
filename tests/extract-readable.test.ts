@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasInvoiceSignal } from "../lib/extract/readable";
+import { hasInvoiceSignal, isLabeledInvoiceText } from "../lib/extract/readable";
 import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 describe("invoice readability signal", () => {
@@ -15,5 +15,13 @@ describe("invoice readability signal", () => {
     expect(
       hasInvoiceSignal("The provided image is a blank white page and contains no invoice or text to transcribe."),
     ).toBe(false);
+  });
+});
+
+describe("labeled invoice text", () => {
+  it("accepts the sample format and rejects camera-PDF OCR", () => {
+    expect(isLabeledInvoiceText(invoiceToText(sampleInvoices.A))).toBe(true);
+    expect(isLabeledInvoiceText("TAX INVOICE\nHarbor Supplies\nTotal 37,450.00\nPage 1 of 1")).toBe(false);
+    expect(isLabeledInvoiceText("Supplier: Harbor Supplies Co., Ltd.\nInvoice No. INV-1044")).toBe(false);
   });
 });

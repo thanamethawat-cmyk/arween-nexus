@@ -3,7 +3,7 @@ import { validateExplanation, type ExplanationDraft } from "./engine/hallucinati
 import { templateExplanation } from "./engine/templates";
 import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
-import { hasInvoiceSignal, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
+import { hasInvoiceSignal, isLabeledInvoiceText, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
 import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
 import { parseStrictInvoice } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
@@ -157,11 +157,27 @@ async function fileToText(file: { filename: string; mime: string; bytes: Buffer 
   }
   if (mime === "application/pdf" || name.endsWith(".pdf")) {
     if (file.bytes.subarray(0, 4).toString() !== "%PDF") throw new AnalyzeError("The PDF header is not valid", 400);
-    const { extractText, getDocumentProxy } = await import("unpdf");
+    const { extractText, getDocumentProxy, renderPageAsImage } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(file.bytes));
-    const extracted = await extractText(pdf, { mergePages: true });
-    const text = Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "");
-    return { text, sparsePdf: text.replace(/\s/g, "").length < MIN_PDF_TEXT_CHARS };
+    try {
+      const extracted = await extractText(pdf, { mergePages: true });
+      const text = Array.isArray(extracted.text) ? extracted.text.join("\n") : String(extracted.text ?? "");
+      if (isLabeledInvoiceText(text)) {
+        return { text, sparsePdf: text.replace(/\s/g, "").length < MIN_PDF_TEXT_CHARS };
+      }
+      // Camera / digital invoices must go through vision. Using extractText alone
+      // (a thin OCR layer of ≥80 characters) lets the model invent consistent amounts.
+      try {
+        const png = await renderPageAsImage(pdf, 1, { width: 1200 });
+        const bytes = Buffer.from(png as ArrayBuffer | Uint8Array);
+        if (bytes.length < 32) throw new Error("empty_raster");
+        return { text, image: { mime: "image/png", bytes } };
+      } catch {
+        return { text, sparsePdf: true };
+      }
+    } finally {
+      await pdf.loadingTask?.destroy?.();
+    }
   }
   if (mime === "image/png" || mime === "image/jpeg" || mime === "image/webp" || /\.(png|jpe?g|webp)$/.test(name)) {
     return { text: "", image: { mime: mime || "image/png", bytes: file.bytes } };
