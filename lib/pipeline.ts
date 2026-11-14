@@ -5,7 +5,7 @@ import { RULE_IDS, type InvoiceInput } from "./engine/types";
 import { extractJsonObject } from "./extract/json";
 import { hasInvoiceSignal, SCHEMA_REJECTED, UNREADABLE_INVOICE } from "./extract/readable";
 import { MIN_PDF_TEXT_CHARS } from "./upload-limits";
-import { parseStrictInvoice } from "./extract/strict";
+import { parseStrictInvoice, printedDotGroupedTotalDrift } from "./extract/strict";
 import { EXTRACT_SYSTEM, EXPLAIN_SYSTEM, TRANSCRIBE_SYSTEM, NebiusError, nebiusChat } from "./nebius/client";
 import { appConfig } from "./env";
 import {
@@ -244,7 +244,6 @@ async function extractInvoice(input: {
     }
     let parsed: ReturnType<typeof parseStrictInvoice> = { ok: false, reason: "not_called", missing: [] };
     let drift: string | null = null;
-    let kept: InvoiceInput | null = null;
     const models = [config.extractModel, config.explainFallbackModel];
     for (let attempt = 0; attempt < models.length; attempt += 1) {
       const model = models[attempt] ?? config.extractModel;
@@ -292,8 +291,9 @@ async function extractInvoice(input: {
       } catch (error) {
         parsed = { ok: false, reason: error instanceof Error ? error.message : "model_json_missing", missing: [] };
       }
-      drift = parsed.ok ? labeledIntegerDrift(userText, parsed.invoice) : null;
-      if (parsed.ok) kept = parsed.invoice;
+      drift = parsed.ok
+        ? labeledIntegerDrift(userText, parsed.invoice) ?? printedDotGroupedTotalDrift(userText, parsed.invoice)
+        : null;
       invocations.push({
         purpose: "extract",
         provider: "nebius",
@@ -307,7 +307,6 @@ async function extractInvoice(input: {
       });
       if (parsed.ok && !drift) return { invoice: parsed.invoice, invocations };
     }
-    if (kept) return { invoice: kept, invocations };
     return { invoice: null, invocations, error: SCHEMA_REJECTED };
   } catch (error) {
     if (error instanceof AnalyzeError) throw error;

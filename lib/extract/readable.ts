@@ -4,6 +4,7 @@ export function hasInvoiceSignal(text: string): boolean {
   if (trimmed.replace(/\s/g, "").length < 20) return false;
   if (/\b(SUBTOTAL_MINOR|TOTAL_MINOR|VAT_MINOR|INVOICE_NUMBER|CONFIDENCE_BPS)\b/.test(trimmed)) return true;
   if (/\d{1,3}(?:,\d{3})+(?:\.\d{2})?/.test(trimmed)) return true;
+  if (/\d{1,3}(?:\.\d{3})+(?:,\d{2})?/.test(trimmed)) return true;
   if (/\d+\.\d{2}\b/.test(trimmed)) return true;
   if (/\b\d{4,}\b/.test(trimmed) && /(invoice|total|amount|บาท|ภาษี|qty|quantity|tax\s*id|เลขที่|ยอดรวม)/i.test(trimmed)) {
     return true;

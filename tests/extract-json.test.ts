@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { parseStrictInvoice, printedDotGroupedTotalDrift } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,87 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+const unlabeledHarborDot = [
+  "TAX INVOICE",
+  "Harbor Supplies Co., Ltd.",
+  "Tax ID 0105560000001",
+  "Invoice INV-1044",
+  "Cartons 100 x 250 = 25.000",
+  "Tape rolls 20 x 500 = 10.000",
+  "Subtotal 35.000",
+  "VAT 7% 2.450",
+  "Total 37.450 THB",
+].join("\n");
+
+const unlabeledHarborEuropean = [
+  "TAX INVOICE",
+  "Harbor Supplies Co., Ltd.",
+  "Tax ID 0105560000001",
+  "Invoice INV-1044",
+  "ยอดรวมทั้งสิ้น 37.450,00 บาท",
+].join("\n");
+
+const understatedHarbor = {
+  ...sampleInvoices.A,
+  subtotalMinor: 1_000_000n,
+  vatMinor: 70_000n,
+  totalMinor: 1_070_000n,
+  lines: [
+    {
+      lineNo: 1,
+      description: "Cartons",
+      quantityMillis: 1_000n,
+      unitPriceMinor: 1_000_000n,
+      lineTotalMinor: 1_000_000n,
+    },
+  ],
+};
+
+describe("printed dot-grouped total drift", () => {
+  it("returns null when sample A labeled integers are left to the labeled checker", () => {
+    expect(printedDotGroupedTotalDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("returns null when the extract total matches printed Total 37.450", () => {
+    expect(printedDotGroupedTotalDrift(unlabeledHarborDot, sampleInvoices.A)).toBeNull();
+  });
+
+  it("returns null when the extract total matches a European 37.450,00 total", () => {
+    expect(printedDotGroupedTotalDrift(unlabeledHarborEuropean, sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a schema-valid 10,700 rewrite of an unlabeled Total 37.450 invoice", () => {
+    expect(printedDotGroupedTotalDrift(unlabeledHarborDot, understatedHarbor)).toMatch(
+      /Printed amount 3745000 minor units is larger than JSON total_minor 1070000/,
+    );
+  });
+
+  it("flags a 10,700 rewrite of a European 37.450,00 total", () => {
+    expect(printedDotGroupedTotalDrift(unlabeledHarborEuropean, understatedHarbor)).toMatch(
+      /Printed amount 3745000 minor units is larger than JSON total_minor 1070000/,
+    );
+  });
+
+  it("does not treat comma-grouped 37,450.00 as a dot-grouped total", () => {
+    const commaHarbor = [
+      "TAX INVOICE",
+      "Harbor Supplies Co., Ltd.",
+      "Invoice INV-1044",
+      "Total 37,450.00 THB",
+    ].join("\n");
+    expect(printedDotGroupedTotalDrift(commaHarbor, understatedHarbor)).toBeNull();
+  });
+
+  it("does not treat two-decimal cents like 37.45 as 3,745", () => {
+    const centsHarbor = [
+      "TAX INVOICE",
+      "Harbor Supplies Co., Ltd.",
+      "Invoice INV-1044",
+      "Total 37.45 THB",
+    ].join("\n");
+    expect(printedDotGroupedTotalDrift(centsHarbor, understatedHarbor)).toBeNull();
   });
 });

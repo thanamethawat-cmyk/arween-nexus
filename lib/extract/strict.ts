@@ -178,3 +178,45 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/** Labeled paste already has TOTAL_MINOR:; those integers are a separate check. */
+const LABELED_TOTAL_RE = /(?:^|\n)\s*TOTAL_MINOR\s*:/;
+
+/**
+ * Vision/OCR often reads the thousands comma in "Total 37,450" as a period: "Total 37.450".
+ * European invoices also print 37.450 or 37.450,00. Require 3-digit groups so cents like
+ * 37.45 are not treated as 3,745. Do not match comma-grouped 37,450 — that is a separate check.
+ */
+const PRINTED_DOT_GROUPED_TOTAL_RE =
+  /(?:total|amount\s*due|grand\s*total|ยอดรวม(?:ทั้งสิ้น)?|รวมทั้งสิ้น)\s*[:.]?\s*(\d{1,3}(?:\.\d{3})+)(?:,(\d{2}))?(?!\d)/gi;
+
+function dotGroupedTotalMinor(wholeToken: string, cents: string | undefined): bigint | null {
+  const cleaned = wholeToken.replace(/\./g, "");
+  if (!/^\d{4,7}$/.test(cleaned)) return null;
+  const satang = cents && /^\d{2}$/.test(cents) ? BigInt(cents) : 0n;
+  return BigInt(cleaned) * 100n + satang;
+}
+
+/**
+ * When a vision/OCR transcript prints "Total 37.450" but the extract JSON uses a smaller
+ * internally consistent total, PAY uses the rewrite. Labeled TOTAL_MINOR integers skip this.
+ */
+export function printedDotGroupedTotalDrift(source: string, invoice: InvoiceInput): string | null {
+  if (LABELED_TOTAL_RE.test(source)) return null;
+
+  const printed: bigint[] = [];
+  for (const match of source.matchAll(PRINTED_DOT_GROUPED_TOTAL_RE)) {
+    const token = match[1];
+    if (!token) continue;
+    const minor = dotGroupedTotalMinor(token, match[2]);
+    if (minor !== null) printed.push(minor);
+  }
+  if (printed.length === 0) return null;
+
+  let max = printed[0] ?? 0n;
+  for (const value of printed) {
+    if (value > max) max = value;
+  }
+  if (invoice.totalMinor === max) return null;
+  return `Printed amount ${max.toString()} minor units is larger than JSON total_minor ${invoice.totalMinor.toString()}.`;
+}
