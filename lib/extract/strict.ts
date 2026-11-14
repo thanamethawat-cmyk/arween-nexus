@@ -178,3 +178,49 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/** Labeled paste already has TOTAL_MINOR:; those integers are a separate check. */
+const LABELED_TOTAL_RE = /(?:^|\n)\s*TOTAL_MINOR\s*:/;
+
+/**
+ * Vision/OCR often drops grouping and satang: "Total 37450" or "ยอดรวมทั้งสิ้น 37 450".
+ * Bound to a total label so tax ids, dates, and quantities are not treated as money.
+ * Do not match comma-grouped 37,450 — that is a separate check.
+ */
+const PRINTED_PLAIN_TOTAL_RE =
+  /(?:total|amount\s*due|grand\s*total|ยอดรวม(?:ทั้งสิ้น)?|รวมทั้งสิ้น)\s*[:.]?\s*(\d{1,3}(?:[ \u00A0]\d{3})+|\d{4,7})(?:\.\d{2})?(?!\d)/gi;
+
+function plainTotalMinor(token: string): bigint | null {
+  const cleaned = token.replace(/[\s\u00A0]/g, "");
+  if (cleaned.includes(".")) {
+    const [whole, frac] = cleaned.split(".");
+    if (!whole || !frac || frac.length !== 2) return null;
+    return BigInt(whole) * 100n + BigInt(frac);
+  }
+  if (!/^\d{4,7}$/.test(cleaned)) return null;
+  return BigInt(cleaned) * 100n;
+}
+
+/**
+ * When a vision/OCR transcript prints "Total 37450" but the extract JSON uses a smaller
+ * internally consistent total, PAY uses the rewrite. Labeled TOTAL_MINOR integers skip this.
+ */
+export function printedPlainTotalDrift(source: string, invoice: InvoiceInput): string | null {
+  if (LABELED_TOTAL_RE.test(source)) return null;
+
+  const printed: bigint[] = [];
+  for (const match of source.matchAll(PRINTED_PLAIN_TOTAL_RE)) {
+    const token = match[1];
+    if (!token) continue;
+    const minor = plainTotalMinor(token);
+    if (minor !== null) printed.push(minor);
+  }
+  if (printed.length === 0) return null;
+
+  let max = printed[0] ?? 0n;
+  for (const value of printed) {
+    if (value > max) max = value;
+  }
+  if (invoice.totalMinor === max) return null;
+  return `Printed amount ${max.toString()} minor units is larger than JSON total_minor ${invoice.totalMinor.toString()}.`;
+}
