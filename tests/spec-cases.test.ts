@@ -158,6 +158,21 @@ describe("reject-first and warn rules", () => {
     expect(result.winningRuleId).toBe("RULE-PAY-001");
     expect(result.findings.find((row) => row.ruleId === "RULE-PRICE-001")?.status).toBe("fail");
   });
+
+  it("would PAY a USD invoice if extraction rewrote the unlabeled currency as THB", () => {
+    const invoice = {
+      ...sampleInvoices.A,
+      currency: "THB",
+      totalMinor: 1_070_000n,
+      subtotalMinor: 1_000_000n,
+      vatMinor: 70_000n,
+      lines: [{ lineNo: 1, description: "Consulting", quantityMillis: 1_000n, unitPriceMinor: 1_000_000n, lineTotalMinor: 1_000_000n }],
+    };
+    const result = decide(inputFor("A", { invoice }));
+    expect(result.outcome).toBe("PAY");
+    expect(result.winningRuleId).toBe("RULE-PAY-001");
+    expect(result.findings.find((row) => row.ruleId === "RULE-DATA-001")?.status).toBe("pass");
+  });
 });
 
 describe("hallucination validator", () => {

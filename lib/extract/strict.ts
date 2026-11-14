@@ -178,3 +178,53 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/** Labeled paste already has CURRENCY:; those are a separate check. */
+const LABELED_CURRENCY_RE = /(?:^|\n)\s*CURRENCY\s*:/;
+
+/**
+ * Vision/OCR transcripts print "37,450.00 THB", "10,700.00 USD", "$10,700.00", or "บาท".
+ * `$` only counts when it sits next to an amount so a stray dollar mention is ignored.
+ */
+const PRINTED_CURRENCY_TOKEN_RE =
+  /\bTHB\b|\bUSD\b|\bBAHT\b|\bUS\$|\$\s*\d|บาท|ดอลลาร์(?:สหรัฐ)?/gi;
+
+function tokenToCurrency(token: string): "THB" | "USD" | null {
+  const normalized = token.toUpperCase().replace(/\s+/g, "");
+  if (normalized === "THB" || normalized === "BAHT" || token === "บาท") return "THB";
+  if (
+    normalized === "USD" ||
+    normalized.startsWith("US$") ||
+    normalized.startsWith("$") ||
+    token.includes("ดอลลาร์")
+  ) {
+    return "USD";
+  }
+  return null;
+}
+
+function printedCurrencies(source: string): Set<"THB" | "USD"> {
+  const found = new Set<"THB" | "USD">();
+  for (const match of source.match(PRINTED_CURRENCY_TOKEN_RE) ?? []) {
+    const currency = tokenToCurrency(match);
+    if (currency) found.add(currency);
+  }
+  return found;
+}
+
+/**
+ * When a vision/OCR transcript prints USD (or บาท) but the extract JSON uses the other
+ * code, decide() treats a USD invoice as THB and can PAY the wrong unit.
+ */
+export function printedCurrencyDrift(source: string, invoice: InvoiceInput): string | null {
+  if (LABELED_CURRENCY_RE.test(source)) return null;
+
+  const printed = printedCurrencies(source);
+  if (printed.size === 0) return null;
+
+  const copied = invoice.currency.trim().toUpperCase();
+  if (printed.has(copied as "THB" | "USD")) return null;
+
+  const shown = [...printed].join("/");
+  return `Printed currency ${shown} was rewritten as ${invoice.currency.trim() || "(empty)"}.`;
+}

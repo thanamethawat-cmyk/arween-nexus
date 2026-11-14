@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { parseStrictInvoice, printedCurrencyDrift } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,53 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+const unlabeledHarborThb = [
+  "TAX INVOICE",
+  "Harbor Supplies Co., Ltd.",
+  "Tax ID 0105560000001",
+  "Invoice INV-1044",
+  "Cartons 100 x 250.00 = 25,000.00",
+  "Tape rolls 20 x 500.00 = 10,000.00",
+  "Subtotal 35,000.00",
+  "VAT 7% 2,450.00",
+  "Total 37,450.00 THB",
+].join("\n");
+
+const unlabeledUsd = [
+  "INVOICE",
+  "Harbor Supplies Co., Ltd.",
+  "Invoice INV-1044",
+  "Consulting 1 x 10,700.00 = 10,700.00",
+  "Total 10,700.00 USD",
+].join("\n");
+
+describe("printed currency drift", () => {
+  it("returns null when labeled sample currency is left to the labeled checker", () => {
+    expect(printedCurrencyDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("returns null when the extract copies THB from an unlabeled total line", () => {
+    expect(printedCurrencyDrift(unlabeledHarborThb, sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a USD invoice rewritten as THB so PAY would use the wrong unit", () => {
+    expect(printedCurrencyDrift(unlabeledUsd, sampleInvoices.A)).toMatch(
+      /Printed currency USD was rewritten as THB\./,
+    );
+  });
+
+  it("flags a บาท total rewritten as USD", () => {
+    const thai = "ยอดรวมทั้งสิ้น 37,450.00 บาท";
+    const asUsd = { ...sampleInvoices.A, currency: "USD" };
+    expect(printedCurrencyDrift(thai, asUsd)).toMatch(/Printed currency THB was rewritten as USD\./);
+  });
+
+  it("flags a $ amount rewritten as THB", () => {
+    expect(printedCurrencyDrift("Total $10,700.00", sampleInvoices.A)).toMatch(
+      /Printed currency USD was rewritten as THB\./,
+    );
   });
 });
