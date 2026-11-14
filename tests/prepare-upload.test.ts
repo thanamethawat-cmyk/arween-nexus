@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { t } from "../lib/i18n";
 import { contentTooLarge, demoLimits } from "../lib/demo-limits";
-import { fittedSize, pdfDelivery, uploadKind } from "../lib/prepare-upload";
-import { MAX_IMAGE_EDGE, MAX_PAYLOAD_BYTES, MAX_SOURCE_BYTES, MIN_PDF_TEXT_CHARS } from "../lib/upload-limits";
+import { fittedSize, pdfDelivery, rasterPdfPages, uploadKind } from "../lib/prepare-upload";
+import { MAX_IMAGE_EDGE, MAX_PAYLOAD_BYTES, MAX_PDF_PAGES, MAX_SOURCE_BYTES, MIN_PDF_TEXT_CHARS } from "../lib/upload-limits";
 import { THEME_BOOT, THEME_KEY, themeFromPreference } from "../lib/theme";
 
 describe("theme preference", () => {
@@ -53,6 +53,16 @@ describe("browser upload preparation", () => {
     expect(pdfDelivery({ bytes: MAX_PAYLOAD_BYTES + 1, textChars: 400 })).toBe("text");
     expect(pdfDelivery({ bytes: 80_000, textChars: 0 })).toBe("raster");
     expect(pdfDelivery({ bytes: MAX_PAYLOAD_BYTES + 1, textChars: 12 })).toBe("raster");
+  });
+
+  it("rejects a scan PDF instead of rasterizing only the first two pages", () => {
+    expect(MAX_PDF_PAGES).toBe(2);
+    expect(rasterPdfPages(1)).toEqual({ ok: true, pages: 1 });
+    expect(rasterPdfPages(2)).toEqual({ ok: true, pages: 2 });
+    expect(rasterPdfPages(3)).toEqual({ ok: false, code: "fileTooManyPages" });
+    expect(rasterPdfPages(0)).toEqual({ ok: false, code: "fileUnreadable" });
+    expect(t("en", "fileTooManyPages")).toMatch(/more than 2 pages/i);
+    expect(t("th", "fileTooManyPages")).toContain("2");
   });
 
   it("states the 25 MB limit in Thai and English", () => {

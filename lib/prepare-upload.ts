@@ -19,7 +19,13 @@ export {
 };
 
 export type UploadKind = "image" | "pdf" | "text" | "unknown";
-export type PrepareCode = "fileTooBig" | "fileShrinkFail" | "fileTextTooBig" | "fileType" | "fileUnreadable";
+export type PrepareCode =
+  | "fileTooBig"
+  | "fileShrinkFail"
+  | "fileTextTooBig"
+  | "fileType"
+  | "fileUnreadable"
+  | "fileTooManyPages";
 
 export class PrepareError extends Error {
   constructor(readonly code: PrepareCode) {
@@ -69,6 +75,16 @@ export function pdfDelivery(options: { bytes: number; textChars: number }): "ori
   return "raster";
 }
 
+/**
+ * Rasterizing a scan silently dropped pages after MAX_PDF_PAGES, so vision only
+ * saw a prefix and PAY could use that incomplete LINE set. Fail closed instead.
+ */
+export function rasterPdfPages(numPages: number): { ok: true; pages: number } | { ok: false; code: PrepareCode } {
+  if (!Number.isInteger(numPages) || numPages < 1) return { ok: false, code: "fileUnreadable" };
+  if (numPages > MAX_PDF_PAGES) return { ok: false, code: "fileTooManyPages" };
+  return { ok: true, pages: numPages };
+}
+
 async function shrinkImage(file: File): Promise<File> {
   const bitmap = await createImageBitmap(file).catch(() => null);
   if (!bitmap) throw new PrepareError("fileType");
@@ -95,7 +111,9 @@ async function preparePdf(file: File): Promise<File> {
     if (delivery === "text") {
       return new File([text.slice(0, MAX_TEXT_CHARS)], renamed(file.name, "txt"), { type: "text/plain" });
     }
-    const pages = Math.min(pdf.numPages, MAX_PDF_PAGES);
+    const budget = rasterPdfPages(pdf.numPages);
+    if (!budget.ok) throw new PrepareError(budget.code);
+    const pages = budget.pages;
     const bitmaps: ImageBitmap[] = [];
     try {
       for (let page = 1; page <= pages; page += 1) {
