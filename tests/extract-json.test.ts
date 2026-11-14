@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledIntegerDrift, parseStrictInvoice, usableExtract } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,61 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+const rewrittenLineAmounts = {
+  ...sampleInvoices.A,
+  lines: sampleInvoices.A.lines.map((line, index) =>
+    index === 0
+      ? { ...line, quantityMillis: 1_000n, unitPriceMinor: 1_000_000n, lineTotalMinor: 1_000_000n }
+      : line,
+  ),
+};
+
+const droppedLineRewrite = {
+  ...sampleInvoices.A,
+  subtotalMinor: 1_000_000n,
+  vatMinor: 70_000n,
+  totalMinor: 1_070_000n,
+  lines: [
+    {
+      lineNo: 1,
+      description: "Cartons",
+      quantityMillis: 1_000n,
+      unitPriceMinor: 1_000_000n,
+      lineTotalMinor: 1_000_000n,
+    },
+  ],
+};
+
+describe("labeled LINE drift", () => {
+  it("returns null when extractor LINE integers match the paste", () => {
+    expect(labeledIntegerDrift(invoiceToText(sampleInvoices.A), sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a rewrite of a printed LINE amount", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    expect(labeledIntegerDrift(source, rewrittenLineAmounts)).toBe(
+      "LINE 1 quantity_millis is printed as 100000. The JSON returned 1000.",
+    );
+  });
+
+  it("flags a schema-valid extract that dropped a labeled LINE row", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    expect(labeledIntegerDrift(source, droppedLineRewrite)).toBe(
+      "printed 2 LINE rows. The JSON returned 1.",
+    );
+  });
+
+  it("does not fall back to a drifted extract after retries", () => {
+    const source = invoiceToText(sampleInvoices.A);
+    const amountDrift = labeledIntegerDrift(source, rewrittenLineAmounts);
+    const droppedDrift = labeledIntegerDrift(source, droppedLineRewrite);
+    expect(usableExtract(rewrittenLineAmounts, amountDrift)).toBeNull();
+    expect(usableExtract(droppedLineRewrite, droppedDrift)).toBeNull();
+    expect(usableExtract(sampleInvoices.A, labeledIntegerDrift(source, sampleInvoices.A))).toBe(
+      sampleInvoices.A,
+    );
   });
 });
