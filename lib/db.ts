@@ -507,6 +507,14 @@ export type InvocationDraft = {
   completionTokens: number | null;
 };
 
+/**
+ * INSUFFICIENT means the extract was not good enough to decide. Persist it as
+ * void so a later review of the same invoice number is not held as a duplicate.
+ */
+export function invoiceRowStatus(outcome: DecisionResult["outcome"]): "issued" | "void" {
+  return outcome === "INSUFFICIENT" ? "void" : "issued";
+}
+
 export type AnalysisWrite = {
   idempotencyKey: string;
   actor: string;
@@ -578,13 +586,14 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
     const forecastId = id("frc_");
     const decisionId = id("dec_");
     const retrievalId = id("ret_");
+    const invoiceStatus = invoiceRowStatus(result.outcome);
 
     await client.query(
       `INSERT INTO invoices (
          invoice_id, business_id, counterparty_id, invoice_number, issue_date, due_date, currency,
          vat_rate_bps, subtotal_minor, vat_minor, total_minor, evidence_confidence_bps,
          gps_verified, anchor, status, source_filename
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,false,'issued',$13)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,false,$13,$14)`,
       [
         invoiceId,
         write.context.businessId,
@@ -598,6 +607,7 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
         write.invoice.vatMinor.toString(),
         write.invoice.totalMinor.toString(),
         write.invoice.extractionConfidenceBps,
+        invoiceStatus,
         write.filename,
       ],
     );

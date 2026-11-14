@@ -12,6 +12,7 @@ import {
 } from "../lib/engine/money";
 import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
+import { invoiceRowStatus } from "../lib/db";
 import { parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
 import { buildRetrievalQuery } from "../lib/tavily/query";
@@ -131,6 +132,14 @@ describe("reject-first and warn rules", () => {
     expect(result.outcome).toBe("INSUFFICIENT");
     expect(result.winningRuleId).toBe("RULE-DATA-001");
     expect(result.partialAmountMinor).toBeNull();
+    expect(invoiceRowStatus(result.outcome)).toBe("void");
+  });
+
+  it("keeps PAY/PARTIAL/HOLD invoices issued so duplicates still block", () => {
+    expect(invoiceRowStatus("PAY")).toBe("issued");
+    expect(invoiceRowStatus("PARTIAL")).toBe("issued");
+    expect(invoiceRowStatus("HOLD")).toBe("issued");
+    expect(invoiceRowStatus("INSUFFICIENT")).toBe("void");
   });
 
   it("holds when the safe payment cap is not positive", () => {
