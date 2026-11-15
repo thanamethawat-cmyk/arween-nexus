@@ -18,16 +18,18 @@ const REQUIRED = [
   "CONFIDENCE_BPS",
 ] as const;
 
+const FORMAT_CHARS = /[\u200B-\u200D\uFEFF]/g;
+
 /** Collapse padding so a JSON extract cannot mint a second identity. */
 export function normalizeLegalName(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
+  return value.replace(FORMAT_CHARS, "").trim().replace(/\s+/g, " ");
 }
 
 export function normalizeInvoiceNumber(value: string): string {
-  return value.trim();
+  return value.replace(FORMAT_CHARS, "").trim().replace(/\s+/g, " ");
 }
 
-/** RULE-INV-001 key: trim and case-fold. OCR and model JSON often change only those. */
+/** RULE-INV-001 key: trim, strip format chars, and case-fold. OCR and model JSON often change only those. */
 export function invoiceNumberKey(value: string): string {
   return normalizeInvoiceNumber(value).toLowerCase();
 }

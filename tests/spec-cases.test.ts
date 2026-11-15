@@ -214,6 +214,7 @@ describe("duplicate invoice identity", () => {
   it("treats case and padding as the same issued invoice number", () => {
     expect(invoiceNumberKey("INV-1044")).toBe("inv-1044");
     expect(invoiceNumberKey(" INV-1044 ")).toBe(invoiceNumberKey("inv-1044"));
+    expect(invoiceNumberKey("INV-\u200B1044")).toBe(invoiceNumberKey("inv-1044"));
     expect(invoiceNumberKey("INV-1044")).not.toBe(invoiceNumberKey("INV-1045"));
   });
 });

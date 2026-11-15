@@ -54,5 +54,6 @@ describe("model JSON extraction", () => {
     expect(parsed.invoice.supplierLegalName).toBe("Harbor Supplies Co., Ltd.");
     expect(parsed.invoice.invoiceNumber).toBe("INV-1044");
     expect(invoiceNumberKey(parsed.invoice.invoiceNumber)).toBe(invoiceNumberKey("inv-1044"));
+    expect(invoiceNumberKey(`INV-\u200B1044`)).toBe("inv-1044");
   });
 });
