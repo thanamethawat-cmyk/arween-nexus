@@ -14,7 +14,7 @@ import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
 import { parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
-import { buildRetrievalQuery } from "../lib/tavily/query";
+import { buildRetrievalQuery, textContainsTaxId } from "../lib/tavily/query";
 
 function inputFor(sample: "A" | "B" | "C", overrides: Partial<DecideInput> = {}): DecideInput {
   return {
@@ -228,6 +228,30 @@ describe("retrieval query", () => {
     expect(query).toBe('"Harbor Supplies Co., Ltd." 0105560000001');
     expect(query.includes(invoice.totalMinor.toString())).toBe(false);
     expect(query.includes("3745000")).toBe(false);
+  });
+});
+
+describe("textContainsTaxId", () => {
+  const harborTaxId = sampleInvoices.A.supplierTaxId ?? "";
+
+  it("matches a compact 13-digit id and the same digits with dashes", () => {
+    expect(textContainsTaxId("Tax ID 0105560000001 on the DBD page", harborTaxId)).toBe(true);
+    expect(textContainsTaxId("010-5560-00000-1", harborTaxId)).toBe(true);
+    expect(textContainsTaxId("https://example.test/0105560000001", "010-5560-00000-1")).toBe(true);
+  });
+
+  it("does not treat a year, invoice fragment, hyphen, or 0 as a tax hit", () => {
+    const snippet = "Founded in 2026. Invoice INV-1044. https://example.com/harbor-supplies page 0 of 5 N/A";
+    expect(textContainsTaxId(snippet, "2026")).toBe(false);
+    expect(textContainsTaxId(snippet, "1044")).toBe(false);
+    expect(textContainsTaxId(snippet, "-")).toBe(false);
+    expect(textContainsTaxId(snippet, "0")).toBe(false);
+    expect(textContainsTaxId(snippet, "N/A")).toBe(false);
+  });
+
+  it("does not count a hit inside a longer number", () => {
+    expect(textContainsTaxId("ref 01055600000012", harborTaxId)).toBe(false);
+    expect(textContainsTaxId("x0105560000001", harborTaxId)).toBe(false);
   });
 });
 
