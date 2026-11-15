@@ -449,6 +449,15 @@ export async function loadContext(): Promise<BusinessContext> {
   };
 }
 
+/**
+ * Same-name suppliers with different tax IDs are different counterparties.
+ * A missing tax ID on either side may still reuse the name match.
+ */
+export function canReuseCounterparty(existingTaxId: string | null, incomingTaxId: string | null): boolean {
+  if (!existingTaxId || !incomingTaxId) return true;
+  return existingTaxId === incomingTaxId;
+}
+
 export async function findCounterpartyId(businessId: string, taxId: string | null, legalName: string): Promise<string | null> {
   const pool = getPool();
   if (taxId) {
@@ -459,13 +468,14 @@ export async function findCounterpartyId(businessId: string, taxId: string | nul
     );
     if (found.rows[0]) return found.rows[0].counterparty_id;
   }
-  const byName = await pool.query<{ counterparty_id: string }>(
-    `SELECT counterparty_id FROM counterparties
+  const byName = await pool.query<{ counterparty_id: string; tax_id: string | null }>(
+    `SELECT counterparty_id, tax_id FROM counterparties
      WHERE business_id = $1 AND lower(legal_name) = lower($2) AND role = 'supplier'
-     ORDER BY created_at LIMIT 1`,
+     ORDER BY created_at`,
     [businessId, legalName],
   );
-  return byName.rows[0]?.counterparty_id ?? null;
+  const match = byName.rows.find((row) => canReuseCounterparty(row.tax_id, taxId));
+  return match?.counterparty_id ?? null;
 }
 
 export async function hasActiveDuplicate(businessId: string, counterpartyId: string, invoiceNumber: string): Promise<boolean> {
@@ -750,13 +760,14 @@ async function upsertCounterparty(client: PoolClient, businessId: string, invoic
     );
     if (found.rows[0]) return found.rows[0].counterparty_id;
   }
-  const byName = await client.query<{ counterparty_id: string }>(
-    `SELECT counterparty_id FROM counterparties
+  const byName = await client.query<{ counterparty_id: string; tax_id: string | null }>(
+    `SELECT counterparty_id, tax_id FROM counterparties
      WHERE business_id = $1 AND lower(legal_name) = lower($2) AND role = 'supplier'
-     ORDER BY created_at LIMIT 1`,
+     ORDER BY created_at`,
     [businessId, invoice.supplierLegalName],
   );
-  if (byName.rows[0]) return byName.rows[0].counterparty_id;
+  const match = byName.rows.find((row) => canReuseCounterparty(row.tax_id, invoice.supplierTaxId));
+  if (match) return match.counterparty_id;
   const counterpartyId = id("cpy_");
   await client.query(
     `INSERT INTO counterparties (counterparty_id, business_id, legal_name, tax_id, country_code, role)

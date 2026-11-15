@@ -12,6 +12,7 @@ import {
 } from "../lib/engine/money";
 import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
+import { canReuseCounterparty } from "../lib/db";
 import { parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
 import { buildRetrievalQuery } from "../lib/tavily/query";
@@ -218,6 +219,19 @@ describe("strict sample parser", () => {
       if (!parsed.ok) return;
       expect(parsed.invoice).toEqual(sampleInvoices[sample]);
     }
+  });
+});
+
+describe("counterparty reuse", () => {
+  it("does not merge same-name suppliers that already have different tax ids", () => {
+    expect(canReuseCounterparty("0105560000001", "0105590009001")).toBe(false);
+    expect(canReuseCounterparty("0105560000001", "0105560000001")).toBe(true);
+  });
+
+  it("still reuses a name match when either side has no tax id", () => {
+    expect(canReuseCounterparty("0105560000001", null)).toBe(true);
+    expect(canReuseCounterparty(null, "0105590009001")).toBe(true);
+    expect(canReuseCounterparty(null, null)).toBe(true);
   });
 });
 
