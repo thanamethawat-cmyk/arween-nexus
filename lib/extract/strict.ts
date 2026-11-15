@@ -18,6 +18,20 @@ const REQUIRED = [
   "CONFIDENCE_BPS",
 ] as const;
 
+/** Soft hyphen, Unicode dashes, minus, and fullwidth hyphen-minus. */
+const INVOICE_DASHES = /[\u00AD\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * OCR and model JSON often copy INV-1044 as INV–1044 or "INV - 1044".
+ * Fold those to ASCII hyphen with no surrounding spaces so RULE-INV-001 can match.
+ */
+export function foldInvoiceNumberDashes(value: string): string {
+  return value.replace(INVOICE_DASHES, "-").replace(/\s*-\s*/g, "-");
+}
+
+/** PostgreSQL equivalent of foldInvoiceNumberDashes, for matching rows stored before parse-time folding. */
+export const INVOICE_NUMBER_DASH_SQL = `regexp_replace(regexp_replace(invoice_number, '[\u00AD\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]', '-', 'g'), '\\s*-\\s*', '-', 'g')`;
+
 /** Reads an explicit labeled invoice. It copies integers; it does not calculate totals. */
 export function parseStrictInvoice(text: string): StrictParseResult {
   const trimmed = text.trim();
@@ -51,7 +65,7 @@ export function parseStrictInvoice(text: string): StrictParseResult {
         supplierLegalName: fields.get("SUPPLIER") ?? "",
         supplierTaxId: tax.length ? tax : null,
         supplierCountryCode: fields.get("COUNTRY") ?? "",
-        invoiceNumber: fields.get("INVOICE_NUMBER") ?? "",
+        invoiceNumber: foldInvoiceNumberDashes(fields.get("INVOICE_NUMBER") ?? ""),
         issueDate: fields.get("ISSUE_DATE") ?? "",
         dueDate: fields.get("DUE_DATE") ?? "",
         currency: fields.get("CURRENCY") ?? "",
@@ -144,7 +158,7 @@ function parseJsonInvoice(text: string): StrictParseResult {
         supplierLegalName: String(row.supplier_legal_name),
         supplierTaxId: tax.trim() ? tax.trim() : null,
         supplierCountryCode: String(row.supplier_country_code ?? ""),
-        invoiceNumber: String(row.invoice_number),
+        invoiceNumber: foldInvoiceNumberDashes(String(row.invoice_number)),
         issueDate: String(row.issue_date),
         dueDate: String(row.due_date),
         currency: String(row.currency),

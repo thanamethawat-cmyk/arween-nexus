@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { foldInvoiceNumberDashes, parseStrictInvoice } from "../lib/extract/strict";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -33,6 +33,36 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(extractJsonObject(text)));
     expect(parsed.ok).toBe(true);
     if (parsed.ok) expect(parsed.invoice.invoiceNumber).toBe("INV-1044");
+  });
+
+  it("folds en-dash and spaced hyphen invoice numbers onto INV-1044", () => {
+    expect(foldInvoiceNumberDashes("INV–1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberDashes("INV — 1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberDashes("INV - 1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberDashes("INV−1044")).toBe("INV-1044");
+    const dashed = { ...invoice, invoice_number: "INV–1044" };
+    const spaced = { ...invoice, invoice_number: "INV - 1044" };
+    const parsedDash = parseStrictInvoice(JSON.stringify(dashed));
+    const parsedSpace = parseStrictInvoice(JSON.stringify(spaced));
+    expect(parsedDash.ok).toBe(true);
+    expect(parsedSpace.ok).toBe(true);
+    if (parsedDash.ok) expect(parsedDash.invoice.invoiceNumber).toBe("INV-1044");
+    if (parsedSpace.ok) expect(parsedSpace.invoice.invoiceNumber).toBe("INV-1044");
+    const labeled = parseStrictInvoice(`SUPPLIER: Harbor Supplies Co., Ltd.
+TAX_ID: 0105560000001
+COUNTRY: TH
+INVOICE_NUMBER: INV–1044
+ISSUE_DATE: 2026-10-01
+DUE_DATE: 2026-10-15
+CURRENCY: THB
+VAT_RATE_BPS: 700
+SUBTOTAL_MINOR: 3500000
+VAT_MINOR: 245000
+TOTAL_MINOR: 3745000
+CONFIDENCE_BPS: 9600
+LINE: 1 | Cartons | 100000 | 25000 | 2500000`);
+    expect(labeled.ok).toBe(true);
+    if (labeled.ok) expect(labeled.invoice.invoiceNumber).toBe("INV-1044");
   });
 
   it("does not invent an amount when the object is missing money fields", () => {
