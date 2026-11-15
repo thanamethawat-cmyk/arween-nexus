@@ -420,6 +420,14 @@ const details: Record<string, { th: string; en: string }> = {
   dscr_partial: { th: "จ่ายเต็มไม่ผ่าน DSCR จึงเสนอเพดานจ่าย", en: "Full payment misses DSCR, so the proposal is the safe cap." },
   dscr_hold: { th: "จ่ายเต็มไม่ผ่าน DSCR และเพดานจ่ายไม่เกินศูนย์", en: "Full payment misses DSCR and the safe cap is not positive." },
   dscr_no_debt: { th: "งวดนี้ไม่มีภาระหนี้", en: "This period has no debt service." },
+  cash_partial: {
+    th: "จ่ายเต็มแล้วเงินสดติดลบ จึงเสนอเพดานจ่ายที่เหลืออยู่",
+    en: "Full payment would leave cash below zero, so the proposal is the remaining cash cap.",
+  },
+  cash_hold: {
+    th: "จ่ายเต็มแล้วเงินสดติดลบ และเพดานจ่ายไม่เกินศูนย์",
+    en: "Full payment would leave cash below zero and the safe cap is not positive.",
+  },
   dscr_no_forecast: { th: "ไม่มีสมมติฐานสำหรับคำนวณ DSCR", en: "Cash assumptions are missing, so DSCR cannot be computed." },
   price_ok: { th: "ไม่มีราคาต่อหน่วยเกินเพดานอ้างอิง", en: "No unit price is above a reference ceiling." },
   price_high: { th: "ราคาต่อหน่วยสูงกว่าเพดาน: {lines}", en: "Unit price is above the ceiling: {lines}" },

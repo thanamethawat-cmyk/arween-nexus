@@ -7,6 +7,7 @@ import {
   dscrMicros,
   maxPaymentMinor,
   minAvailableMinor,
+  passesDscr,
   splitFiftyFifty,
   divRoundHalfUp,
 } from "../lib/engine/money";
@@ -43,6 +44,12 @@ describe("spec shared liquidity figures", () => {
     expect(divRoundHalfUp(5n, 2n)).toBe(3n);
     expect(divRoundHalfUp(1n, 2n)).toBe(1n);
     expect(divRoundHalfUp(2_450_000_000n, 10_000n)).toBe(245_000n);
+  });
+
+  it("treats zero debt as a cash floor, not a free pass", () => {
+    expect(passesDscr(1n, 0n)).toBe(true);
+    expect(passesDscr(0n, 0n)).toBe(true);
+    expect(passesDscr(-1n, 0n)).toBe(false);
   });
 });
 
@@ -146,6 +153,61 @@ describe("reject-first and warn rules", () => {
     expect(result.outcome).toBe("HOLD");
     expect(result.winningRuleId).toBe("RULE-DSCR-001");
     expect(result.partialAmountMinor).toBeNull();
+  });
+
+  it("caps sample B when debt is zero and full payment would overdraft", () => {
+    const result = decide(
+      inputFor("B", {
+        assumptions: {
+          cashInMinor: 10_000_000n,
+          cashOutOperatingMinor: 8_000_000n,
+          principalDueMinor: 0n,
+          interestDueMinor: 0n,
+          currency: "THB",
+        },
+      }),
+    );
+    expect(result.maxPaymentMinor).toBe(2_000_000n);
+    expect(result.outcome).toBe("PARTIAL");
+    expect(result.winningRuleId).toBe("RULE-DSCR-001");
+    expect(result.partialAmountMinor).toBe(2_000_000n);
+    expect(result.findings.find((row) => row.ruleId === "RULE-DSCR-001")?.detailKey).toBe("cash_partial");
+  });
+
+  it("still pays when debt is zero and cash covers the invoice", () => {
+    const result = decide(
+      inputFor("A", {
+        assumptions: {
+          cashInMinor: 10_000_000n,
+          cashOutOperatingMinor: 1_000_000n,
+          principalDueMinor: 0n,
+          interestDueMinor: 0n,
+          currency: "THB",
+        },
+      }),
+    );
+    expect(result.outcome).toBe("PAY");
+    expect(result.winningRuleId).toBe("RULE-PAY-001");
+    expect(result.findings.find((row) => row.ruleId === "RULE-DSCR-001")?.detailKey).toBe("dscr_no_debt");
+  });
+
+  it("holds when debt is zero and net cash is not positive", () => {
+    const result = decide(
+      inputFor("A", {
+        assumptions: {
+          cashInMinor: 5_000_000n,
+          cashOutOperatingMinor: 8_000_000n,
+          principalDueMinor: 0n,
+          interestDueMinor: 0n,
+          currency: "THB",
+        },
+      }),
+    );
+    expect(result.maxPaymentMinor).toBe(-3_000_000n);
+    expect(result.outcome).toBe("HOLD");
+    expect(result.winningRuleId).toBe("RULE-DSCR-001");
+    expect(result.partialAmountMinor).toBeNull();
+    expect(result.findings.find((row) => row.ruleId === "RULE-DSCR-001")?.detailKey).toBe("cash_hold");
   });
 
   it("keeps PAY when a unit price only trips the warn rule", () => {

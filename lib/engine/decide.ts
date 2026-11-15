@@ -121,26 +121,26 @@ export function decide(input: DecideInput): DecisionResult {
   const total = invoice.totalMinor;
   const scenarios = assumptions ? buildScenarios(assumptions.cashInMinor, assumptions.cashOutOperatingMinor, total, maxPay, debt) : [];
   const paidFull = scenarios.find((scenario) => scenario.kind === "paid_full");
-  const dscrFails = Boolean(paidFull && paidFull.passesDscr === false && debt > 0n);
+  const dscrFails = Boolean(paidFull && paidFull.passesDscr === false);
 
   if (!assumptions || !paidFull) {
     findings.push(finding("RULE-DSCR-001", "fail", "block", "dscr_no_forecast"));
-  } else if (debt <= 0n) {
-    findings.push(finding("RULE-DSCR-001", "pass", "block", "dscr_no_debt"));
   } else if (dscrFails && maxPay > 0n) {
     findings.push(
-      finding("RULE-DSCR-001", "fail", "block", "dscr_partial", {
+      finding("RULE-DSCR-001", "fail", "block", debt <= 0n ? "cash_partial" : "dscr_partial", {
         maxPaymentMinor: maxPay.toString(),
         dscrMicros: (paidFull.dscrMicros ?? 0n).toString(),
       }),
     );
   } else if (dscrFails) {
     findings.push(
-      finding("RULE-DSCR-001", "fail", "block", "dscr_hold", {
+      finding("RULE-DSCR-001", "fail", "block", debt <= 0n ? "cash_hold" : "dscr_hold", {
         maxPaymentMinor: maxPay.toString(),
         dscrMicros: (paidFull.dscrMicros ?? 0n).toString(),
       }),
     );
+  } else if (debt <= 0n) {
+    findings.push(finding("RULE-DSCR-001", "pass", "block", "dscr_no_debt"));
   } else {
     findings.push(
       finding("RULE-DSCR-001", "pass", "block", "dscr_ok", {
