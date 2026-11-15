@@ -12,7 +12,7 @@ import {
 } from "../lib/engine/money";
 import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { invoiceNumberKey, parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
 import { buildRetrievalQuery } from "../lib/tavily/query";
 
@@ -207,6 +207,14 @@ describe("hallucination validator", () => {
       expect(check.reasons).toEqual([]);
       expect(check.accepted).toBe(true);
     }
+  });
+});
+
+describe("duplicate invoice identity", () => {
+  it("treats case and padding as the same issued invoice number", () => {
+    expect(invoiceNumberKey("INV-1044")).toBe("inv-1044");
+    expect(invoiceNumberKey(" INV-1044 ")).toBe(invoiceNumberKey("inv-1044"));
+    expect(invoiceNumberKey("INV-1044")).not.toBe(invoiceNumberKey("INV-1045"));
   });
 });
 

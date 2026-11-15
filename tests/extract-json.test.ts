@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { invoiceNumberKey, parseStrictInvoice } from "../lib/extract/strict";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +40,19 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+
+  it("trims padded JSON identity fields so a second extract is the same invoice", () => {
+    const padded = {
+      ...invoice,
+      supplier_legal_name: "  Harbor   Supplies Co., Ltd. ",
+      invoice_number: " INV-1044 ",
+    };
+    const parsed = parseStrictInvoice(JSON.stringify(padded));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.invoice.supplierLegalName).toBe("Harbor Supplies Co., Ltd.");
+    expect(parsed.invoice.invoiceNumber).toBe("INV-1044");
+    expect(invoiceNumberKey(parsed.invoice.invoiceNumber)).toBe(invoiceNumberKey("inv-1044"));
   });
 });
