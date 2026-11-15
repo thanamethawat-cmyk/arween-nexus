@@ -18,6 +18,23 @@ const REQUIRED = [
   "CONFIDENCE_BPS",
 ] as const;
 
+/**
+ * OCR and model JSON often copy INV-1044 as INV/1044, INV.1044, or INV_1044.
+ * Fold those ASCII separators to a hyphen so RULE-INV-001 can match the stored number.
+ * Unicode dashes are handled separately.
+ */
+export function foldInvoiceNumberSeparators(value: string): string {
+  return value.replace(/[/\\_.]+/g, "-").replace(/-{2,}/g, "-");
+}
+
+/** Match key that also treats a dropped hyphen (INV1044) as INV-1044. */
+export function compactInvoiceNumber(value: string): string {
+  return foldInvoiceNumberSeparators(value).replace(/[-\s]+/g, "");
+}
+
+/** PostgreSQL equivalent of compactInvoiceNumber, for rows stored before parse-time folding. */
+export const INVOICE_NUMBER_COMPACT_SQL = `regexp_replace(regexp_replace(invoice_number, '[/\\\\_.]+', '-', 'g'), '[-[:space:]]+', '', 'g')`;
+
 /** Reads an explicit labeled invoice. It copies integers; it does not calculate totals. */
 export function parseStrictInvoice(text: string): StrictParseResult {
   const trimmed = text.trim();
@@ -51,7 +68,7 @@ export function parseStrictInvoice(text: string): StrictParseResult {
         supplierLegalName: fields.get("SUPPLIER") ?? "",
         supplierTaxId: tax.length ? tax : null,
         supplierCountryCode: fields.get("COUNTRY") ?? "",
-        invoiceNumber: fields.get("INVOICE_NUMBER") ?? "",
+        invoiceNumber: foldInvoiceNumberSeparators(fields.get("INVOICE_NUMBER") ?? ""),
         issueDate: fields.get("ISSUE_DATE") ?? "",
         dueDate: fields.get("DUE_DATE") ?? "",
         currency: fields.get("CURRENCY") ?? "",
@@ -144,7 +161,7 @@ function parseJsonInvoice(text: string): StrictParseResult {
         supplierLegalName: String(row.supplier_legal_name),
         supplierTaxId: tax.trim() ? tax.trim() : null,
         supplierCountryCode: String(row.supplier_country_code ?? ""),
-        invoiceNumber: String(row.invoice_number),
+        invoiceNumber: foldInvoiceNumberSeparators(String(row.invoice_number)),
         issueDate: String(row.issue_date),
         dueDate: String(row.due_date),
         currency: String(row.currency),

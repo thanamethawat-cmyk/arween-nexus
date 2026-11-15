@@ -2,6 +2,7 @@ import { Pool, type PoolClient } from "pg";
 import { appConfig, demoFlags } from "./env";
 import { id } from "./ids";
 import type { DecisionResult, InvoiceInput } from "./engine/types";
+import { compactInvoiceNumber, foldInvoiceNumberSeparators, INVOICE_NUMBER_COMPACT_SQL } from "./extract/strict";
 import { VANTA_TAX_ID } from "./samples";
 import type { EvidenceHit } from "./tavily/fixtures";
 import type { BootstrapView, DecisionListItem, DecisionView } from "./view";
@@ -472,9 +473,9 @@ export async function hasActiveDuplicate(businessId: string, counterpartyId: str
   const pool = getPool();
   const found = await pool.query(
     `SELECT 1 FROM invoices
-     WHERE business_id = $1 AND counterparty_id = $2 AND invoice_number = $3 AND status <> 'void'
+     WHERE business_id = $1 AND counterparty_id = $2 AND ${INVOICE_NUMBER_COMPACT_SQL} = $3 AND status <> 'void'
      LIMIT 1`,
-    [businessId, counterpartyId, invoiceNumber],
+    [businessId, counterpartyId, compactInvoiceNumber(invoiceNumber)],
   );
   return (found.rowCount ?? 0) > 0;
 }
@@ -485,13 +486,13 @@ export async function voidReplayInvoices(businessId: string, taxId: string, invo
   await pool.query(
     `UPDATE invoices SET status = 'void'
      WHERE business_id = $1
-       AND invoice_number = $2
+       AND ${INVOICE_NUMBER_COMPACT_SQL} = $2
        AND anchor = false
        AND status <> 'void'
        AND counterparty_id IN (
          SELECT counterparty_id FROM counterparties WHERE business_id = $1 AND tax_id = $3
        )`,
-    [businessId, invoiceNumber, taxId],
+    [businessId, compactInvoiceNumber(invoiceNumber), taxId],
   );
 }
 
@@ -589,7 +590,7 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
         invoiceId,
         write.context.businessId,
         counterpartyId,
-        write.invoice.invoiceNumber,
+        foldInvoiceNumberSeparators(write.invoice.invoiceNumber),
         write.invoice.issueDate,
         write.invoice.dueDate,
         write.invoice.currency,
@@ -769,8 +770,8 @@ async function upsertCounterparty(client: PoolClient, businessId: string, invoic
 async function duplicateOn(client: PoolClient, businessId: string, counterpartyId: string, invoiceNumber: string): Promise<boolean> {
   const found = await client.query(
     `SELECT 1 FROM invoices
-     WHERE business_id = $1 AND counterparty_id = $2 AND invoice_number = $3 AND status <> 'void' LIMIT 1`,
-    [businessId, counterpartyId, invoiceNumber],
+     WHERE business_id = $1 AND counterparty_id = $2 AND ${INVOICE_NUMBER_COMPACT_SQL} = $3 AND status <> 'void' LIMIT 1`,
+    [businessId, counterpartyId, compactInvoiceNumber(invoiceNumber)],
   );
   return (found.rowCount ?? 0) > 0;
 }
