@@ -35,9 +35,14 @@ export function cashAvailableMinor(
   return cashInMinor - cashOutOperatingMinor - decisionPaymentMinor;
 }
 
-/** 1.25x threshold without floats: cash * 100 >= debt * 125, and debt must be due. */
+/**
+ * With debt: cash * 100 >= debt * 125 (1.25x, no floats).
+ * With no debt: full payment must not drive cash below zero. Otherwise PAY
+ * ignores the cash preview cap and proposes an overdraft.
+ */
 export function passesDscr(cashAvailable: bigint, debtService: bigint): boolean {
-  return debtService > 0n && cashAvailable * 100n >= debtService * 125n;
+  if (debtService <= 0n) return cashAvailable >= 0n;
+  return cashAvailable * 100n >= debtService * 125n;
 }
 
 /** 1.25 is stored as 1_250_000. Null when there is no debt service. */
