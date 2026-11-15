@@ -18,6 +18,26 @@ const REQUIRED = [
   "CONFIDENCE_BPS",
 ] as const;
 
+/**
+ * OCR/JSON often copies "Invoice No. INV-1044", "#INV-1044", or "เลขที่ INV-1044".
+ * Strip those printed labels so RULE-INV-001 can match the stored INV-1044.
+ * Separator and dash folding are handled on other branches.
+ */
+export function foldInvoiceNumberLabels(value: string): string {
+  let current = value.trim();
+  const wordPrefix =
+    /^(?:invoice(?:\s+(?:number|no\.?)?)?|เลขที่(?:ใบแจ้งหนี้)?|number|no)[.:\s#]+/i;
+  for (let step = 0; step < 3; step += 1) {
+    const next = current.replace(wordPrefix, "").replace(/^#+\s*/, "").trim();
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+
+/** PostgreSQL equivalent of foldInvoiceNumberLabels, for rows stored before parse-time folding. */
+export const INVOICE_NUMBER_LABEL_SQL = `btrim(regexp_replace(regexp_replace(btrim(invoice_number), '^(invoice([[:space:]]+(number|no[.]?)?)?|เลขที่(ใบแจ้งหนี้)?|number|no)[.[:space:]:#]+', '', 'i'), '^#+[[:space:]]*', '', 'i'))`;
+
 /** Reads an explicit labeled invoice. It copies integers; it does not calculate totals. */
 export function parseStrictInvoice(text: string): StrictParseResult {
   const trimmed = text.trim();
@@ -51,7 +71,7 @@ export function parseStrictInvoice(text: string): StrictParseResult {
         supplierLegalName: fields.get("SUPPLIER") ?? "",
         supplierTaxId: tax.length ? tax : null,
         supplierCountryCode: fields.get("COUNTRY") ?? "",
-        invoiceNumber: fields.get("INVOICE_NUMBER") ?? "",
+        invoiceNumber: foldInvoiceNumberLabels(fields.get("INVOICE_NUMBER") ?? ""),
         issueDate: fields.get("ISSUE_DATE") ?? "",
         dueDate: fields.get("DUE_DATE") ?? "",
         currency: fields.get("CURRENCY") ?? "",
@@ -144,7 +164,7 @@ function parseJsonInvoice(text: string): StrictParseResult {
         supplierLegalName: String(row.supplier_legal_name),
         supplierTaxId: tax.trim() ? tax.trim() : null,
         supplierCountryCode: String(row.supplier_country_code ?? ""),
-        invoiceNumber: String(row.invoice_number),
+        invoiceNumber: foldInvoiceNumberLabels(String(row.invoice_number)),
         issueDate: String(row.issue_date),
         dueDate: String(row.due_date),
         currency: String(row.currency),

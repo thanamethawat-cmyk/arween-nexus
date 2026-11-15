@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { foldInvoiceNumberLabels, parseStrictInvoice } from "../lib/extract/strict";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +40,32 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+describe("invoice number label prefixes", () => {
+  it("strips printed Invoice No. / # / เลขที่ labels down to INV-1044", () => {
+    expect(foldInvoiceNumberLabels("INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("No. INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("NO INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("#INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("Invoice No. INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("Invoice INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("Invoice #INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("เลขที่ INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("No. #INV-1044")).toBe("INV-1044");
+  });
+
+  it("does not strip INV-1044 or INVOICE-1044 as if they were labels", () => {
+    expect(foldInvoiceNumberLabels("INV-1044")).toBe("INV-1044");
+    expect(foldInvoiceNumberLabels("INVOICE-1044")).toBe("INVOICE-1044");
+  });
+
+  it("parses JSON invoice_number prefixes to the stored Harbor number", () => {
+    for (const invoiceNumber of ["No. INV-1044", "#INV-1044", "Invoice No. INV-1044", "เลขที่ INV-1044"]) {
+      const parsed = parseStrictInvoice(JSON.stringify({ ...invoice, invoice_number: invoiceNumber }));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(parsed.invoice.invoiceNumber).toBe("INV-1044");
+    }
   });
 });
