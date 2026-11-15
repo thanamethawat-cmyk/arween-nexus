@@ -62,6 +62,27 @@ describe("case A — PAY", () => {
     expect(result.maxPaymentMinor).toBe(4_500_000n);
     expect(result.scenarios.map((scenario) => scenario.kind)).toEqual(["held", "paid_full", "partial_max"]);
   });
+
+  it("would PAY a 10,700 THB rewrite of sample A if extraction accepted it", () => {
+    const rewritten = {
+      ...sampleInvoices.A,
+      subtotalMinor: 1_000_000n,
+      vatMinor: 70_000n,
+      totalMinor: 1_070_000n,
+      lines: [
+        {
+          lineNo: 1,
+          description: "Cartons",
+          quantityMillis: 1000n,
+          unitPriceMinor: 1_000_000n,
+          lineTotalMinor: 1_000_000n,
+        },
+      ],
+    };
+    const paidRewrite = decide(inputFor("A", { invoice: rewritten }));
+    expect(paidRewrite.outcome).toBe("PAY");
+    expect(paidRewrite.winningRuleId).toBe("RULE-PAY-001");
+  });
 });
 
 describe("counterparty check without Tavily", () => {

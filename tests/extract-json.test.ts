@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJsonObject } from "../lib/extract/json";
-import { parseStrictInvoice } from "../lib/extract/strict";
+import { labeledIntegerDrift, parseStrictInvoice, usableExtract } from "../lib/extract/strict";
+import { invoiceToText, sampleInvoices } from "../lib/samples";
 
 const invoice = {
   supplier_legal_name: "Harbor Supplies Co., Ltd.",
@@ -40,5 +41,41 @@ describe("model JSON extraction", () => {
     const parsed = parseStrictInvoice(JSON.stringify(thin));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.reason).toBe("missing_fields");
+  });
+});
+
+describe("labeled LINE integer drift", () => {
+  const source = invoiceToText(sampleInvoices.A);
+  const rewritten = {
+    ...sampleInvoices.A,
+    lines: [
+      { ...sampleInvoices.A.lines[0]!, quantityMillis: 1000n },
+      { ...sampleInvoices.A.lines[1]! },
+    ],
+  };
+  const dropped = {
+    ...sampleInvoices.A,
+    lines: [{ ...sampleInvoices.A.lines[0]! }],
+  };
+
+  it("returns null when JSON copies printed LINE integers", () => {
+    expect(labeledIntegerDrift(source, sampleInvoices.A)).toBeNull();
+  });
+
+  it("flags a rewrite of LINE 1 quantity_millis from 100000 to 1000", () => {
+    expect(labeledIntegerDrift(source, rewritten)).toBe(
+      "LINE 1 quantity_millis is printed as 100000. The JSON returned 1000.",
+    );
+  });
+
+  it("flags a dropped LINE row as drift", () => {
+    expect(labeledIntegerDrift(source, dropped)).toBe("printed 2 LINE rows. The JSON returned 1.");
+  });
+
+  it("usableExtract is null for drifted or dropped rewrites and returns the invoice when drift is null", () => {
+    expect(usableExtract(rewritten, labeledIntegerDrift(source, rewritten))).toBeNull();
+    expect(usableExtract(dropped, labeledIntegerDrift(source, dropped))).toBeNull();
+    expect(usableExtract(sampleInvoices.A, null)).toEqual(sampleInvoices.A);
+    expect(usableExtract(null, null)).toBeNull();
   });
 });

@@ -178,3 +178,44 @@ function asInt(value: unknown): number {
   }
   return Number(parsed);
 }
+
+/** Schema-valid JSON that rewrote printed LINE integers must not be paid. */
+export function usableExtract(invoice: InvoiceInput | null, drift: string | null): InvoiceInput | null {
+  if (!invoice || drift) return null;
+  return invoice;
+}
+
+/**
+ * Compare extractor LINE integers to labeled LINE rows.
+ * Null means there is no labeled LINE conflict (including unlabeled scans).
+ * A line-count mismatch is a conflict, not a skip.
+ */
+export function labeledIntegerDrift(source: string, invoice: InvoiceInput): string | null {
+  const printed: string[][] = [];
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("LINE:")) continue;
+    const parts = line.slice("LINE:".length).split("|").map((part) => part.trim());
+    if (parts.length === 5) printed.push(parts);
+  }
+  if (printed.length === 0) return null;
+  if (printed.length !== invoice.lines.length) {
+    return `printed ${printed.length} LINE rows. The JSON returned ${invoice.lines.length}.`;
+  }
+  for (let index = 0; index < printed.length; index += 1) {
+    const parts = printed[index] ?? [];
+    const line = invoice.lines[index];
+    if (!line) return `printed ${printed.length} LINE rows. The JSON returned ${invoice.lines.length}.`;
+    const expected: Array<[string, string, string]> = [
+      ["quantity_millis", parts[2] ?? "", line.quantityMillis.toString()],
+      ["unit_price_minor", parts[3] ?? "", line.unitPriceMinor.toString()],
+      ["line_total_minor", parts[4] ?? "", line.lineTotalMinor.toString()],
+    ];
+    for (const [field, printedValue, copied] of expected) {
+      if (printedValue !== copied) {
+        return `LINE ${index + 1} ${field} is printed as ${printedValue}. The JSON returned ${copied}.`;
+      }
+    }
+  }
+  return null;
+}
