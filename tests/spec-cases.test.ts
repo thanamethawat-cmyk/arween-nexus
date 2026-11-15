@@ -219,6 +219,55 @@ describe("strict sample parser", () => {
       expect(parsed.invoice).toEqual(sampleInvoices[sample]);
     }
   });
+
+  it("strips TAX INVOICE / ใบกำกับภาษี titles so a second PAY of INV-1044 is a duplicate", () => {
+    const invoice = sampleInvoices.A;
+    const payload = (invoiceNumber: string) =>
+      JSON.stringify({
+        supplier_legal_name: invoice.supplierLegalName,
+        supplier_tax_id: invoice.supplierTaxId,
+        supplier_country_code: invoice.supplierCountryCode,
+        invoice_number: invoiceNumber,
+        issue_date: invoice.issueDate,
+        due_date: invoice.dueDate,
+        currency: invoice.currency,
+        vat_rate_bps: invoice.vatRateBps,
+        subtotal_minor: invoice.subtotalMinor.toString(),
+        vat_minor: invoice.vatMinor.toString(),
+        total_minor: invoice.totalMinor.toString(),
+        extraction_confidence_bps: invoice.extractionConfidenceBps,
+        lines: invoice.lines.map((line) => ({
+          line_no: line.lineNo,
+          description: line.description,
+          quantity_millis: line.quantityMillis.toString(),
+          unit_price_minor: line.unitPriceMinor.toString(),
+          line_total_minor: line.lineTotalMinor.toString(),
+        })),
+      });
+    for (const labeled of [
+      "TAX INVOICE INV-1044",
+      "Tax Invoice No. INV-1044",
+      "ใบกำกับภาษีเลขที่ INV-1044",
+      "ใบกำกับภาษี INV-1044",
+      "ใบแจ้งหนี้ INV-1044",
+    ]) {
+      const parsed = parseStrictInvoice(payload(labeled));
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.invoice.invoiceNumber).toBe("INV-1044");
+      const result = decide(inputFor("A", { invoice: parsed.invoice, duplicateInvoice: true }));
+      expect(result.outcome).toBe("HOLD");
+      expect(result.winningRuleId).toBe("RULE-INV-001");
+    }
+    const labeledText = invoiceToText(invoice).replace(
+      "INVOICE_NUMBER: INV-1044",
+      "INVOICE_NUMBER: TAX INVOICE INV-1044",
+    );
+    const fromText = parseStrictInvoice(labeledText);
+    expect(fromText.ok).toBe(true);
+    if (!fromText.ok) return;
+    expect(fromText.invoice.invoiceNumber).toBe("INV-1044");
+  });
 });
 
 describe("retrieval query", () => {

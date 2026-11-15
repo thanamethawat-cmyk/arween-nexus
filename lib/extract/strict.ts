@@ -18,6 +18,27 @@ const REQUIRED = [
   "CONFIDENCE_BPS",
 ] as const;
 
+/**
+ * OCR/JSON often copies the document title with the number: "TAX INVOICE INV-1044",
+ * "Tax Invoice No. INV-1044", "ใบกำกับภาษีเลขที่ INV-1044". The review UI even
+ * prints "TAX INVOICE {number}". Strip those titles so RULE-INV-001 can match
+ * the stored INV-1044. Invoice No. / # / เลขที่ prefixes are handled elsewhere.
+ */
+export function foldTaxInvoiceNumberLabels(value: string): string {
+  let current = value.trim();
+  const titlePrefix =
+    /^(?:tax\s+invoice(?:\s+(?:number|no\.?)?)?|ใบกำกับภาษี(?:เลขที่)?|ใบแจ้งหนี้(?:เลขที่)?)[.:\s#]+/i;
+  for (let step = 0; step < 3; step += 1) {
+    const next = current.replace(titlePrefix, "").trim();
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+
+/** PostgreSQL equivalent of foldTaxInvoiceNumberLabels, for rows stored before parse-time folding. */
+export const TAX_INVOICE_NUMBER_LABEL_SQL = `btrim(regexp_replace(btrim(invoice_number), '^(tax[[:space:]]+invoice([[:space:]]+(number|no[.]?)?)?|ใบกำกับภาษี(เลขที่)?|ใบแจ้งหนี้(เลขที่)?)[.[:space:]:#]+', '', 'i'))`;
+
 /** Reads an explicit labeled invoice. It copies integers; it does not calculate totals. */
 export function parseStrictInvoice(text: string): StrictParseResult {
   const trimmed = text.trim();
@@ -51,7 +72,7 @@ export function parseStrictInvoice(text: string): StrictParseResult {
         supplierLegalName: fields.get("SUPPLIER") ?? "",
         supplierTaxId: tax.length ? tax : null,
         supplierCountryCode: fields.get("COUNTRY") ?? "",
-        invoiceNumber: fields.get("INVOICE_NUMBER") ?? "",
+        invoiceNumber: foldTaxInvoiceNumberLabels(fields.get("INVOICE_NUMBER") ?? ""),
         issueDate: fields.get("ISSUE_DATE") ?? "",
         dueDate: fields.get("DUE_DATE") ?? "",
         currency: fields.get("CURRENCY") ?? "",
@@ -144,7 +165,7 @@ function parseJsonInvoice(text: string): StrictParseResult {
         supplierLegalName: String(row.supplier_legal_name),
         supplierTaxId: tax.trim() ? tax.trim() : null,
         supplierCountryCode: String(row.supplier_country_code ?? ""),
-        invoiceNumber: String(row.invoice_number),
+        invoiceNumber: foldTaxInvoiceNumberLabels(String(row.invoice_number)),
         issueDate: String(row.issue_date),
         dueDate: String(row.due_date),
         currency: String(row.currency),
