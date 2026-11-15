@@ -14,7 +14,7 @@ import { templateExplanation } from "../lib/engine/templates";
 import { RULE_IDS, type DecideInput } from "../lib/engine/types";
 import { parseStrictInvoice } from "../lib/extract/strict";
 import { SPEC_ASSUMPTIONS, invoiceToText, sampleInvoices } from "../lib/samples";
-import { buildRetrievalQuery } from "../lib/tavily/query";
+import { buildRetrievalQuery, compactTaxId } from "../lib/tavily/query";
 
 function inputFor(sample: "A" | "B" | "C", overrides: Partial<DecideInput> = {}): DecideInput {
   return {
@@ -228,6 +228,16 @@ describe("retrieval query", () => {
     expect(query).toBe('"Harbor Supplies Co., Ltd." 0105560000001');
     expect(query.includes(invoice.totalMinor.toString())).toBe(false);
     expect(query.includes("3745000")).toBe(false);
+  });
+
+  it("treats dashed, spaced, and ZWSP tax ids as the same Harbor supplier", () => {
+    const stored = sampleInvoices.A.supplierTaxId ?? "";
+    expect(compactTaxId("010-5560-000001")).toBe(stored);
+    expect(compactTaxId("0-1055-60000-00-1")).toBe(stored);
+    expect(compactTaxId(" 010 5560 000001 ")).toBe(stored);
+    expect(compactTaxId("0105560\u200B000001")).toBe(stored);
+    expect(compactTaxId("---")).toBe("");
+    expect(buildRetrievalQuery("Harbor Supplies", "010-5560-000001")).toBe('"Harbor Supplies" 0105560000001');
   });
 });
 

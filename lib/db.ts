@@ -4,6 +4,7 @@ import { id } from "./ids";
 import type { DecisionResult, InvoiceInput } from "./engine/types";
 import { VANTA_TAX_ID } from "./samples";
 import type { EvidenceHit } from "./tavily/fixtures";
+import { compactTaxId } from "./tavily/query";
 import type { BootstrapView, DecisionListItem, DecisionView } from "./view";
 
 const globalForPg = globalThis as unknown as { arweenPool?: Pool };
@@ -451,11 +452,15 @@ export async function loadContext(): Promise<BusinessContext> {
 
 export async function findCounterpartyId(businessId: string, taxId: string | null, legalName: string): Promise<string | null> {
   const pool = getPool();
-  if (taxId) {
+  const compact = compactTaxId(taxId);
+  if (compact) {
     const found = await pool.query<{ counterparty_id: string }>(
       `SELECT counterparty_id FROM counterparties
-       WHERE business_id = $1 AND tax_id = $2 AND role = 'supplier'`,
-      [businessId, taxId],
+       WHERE business_id = $1 AND role = 'supplier'
+         AND regexp_replace(coalesce(tax_id, ''), '[^0-9A-Za-z]', '', 'g') = $2
+       ORDER BY created_at
+       LIMIT 1`,
+      [businessId, compact],
     );
     if (found.rows[0]) return found.rows[0].counterparty_id;
   }
@@ -480,6 +485,8 @@ export async function hasActiveDuplicate(businessId: string, counterpartyId: str
 }
 
 export async function voidReplayInvoices(businessId: string, taxId: string, invoiceNumber: string): Promise<void> {
+  const compact = compactTaxId(taxId);
+  if (!compact) return;
   await ensureDb();
   const pool = getPool();
   await pool.query(
@@ -489,9 +496,11 @@ export async function voidReplayInvoices(businessId: string, taxId: string, invo
        AND anchor = false
        AND status <> 'void'
        AND counterparty_id IN (
-         SELECT counterparty_id FROM counterparties WHERE business_id = $1 AND tax_id = $3
+         SELECT counterparty_id FROM counterparties
+         WHERE business_id = $1
+           AND regexp_replace(coalesce(tax_id, ''), '[^0-9A-Za-z]', '', 'g') = $3
        )`,
-    [businessId, invoiceNumber, taxId],
+    [businessId, invoiceNumber, compact],
   );
 }
 
@@ -742,11 +751,15 @@ export async function persistAnalysis(write: AnalysisWrite): Promise<{ decisionI
 }
 
 async function upsertCounterparty(client: PoolClient, businessId: string, invoice: InvoiceInput): Promise<string> {
-  if (invoice.supplierTaxId) {
+  const compact = compactTaxId(invoice.supplierTaxId);
+  if (compact) {
     const found = await client.query<{ counterparty_id: string }>(
       `SELECT counterparty_id FROM counterparties
-       WHERE business_id = $1 AND tax_id = $2 AND role = 'supplier'`,
-      [businessId, invoice.supplierTaxId],
+       WHERE business_id = $1 AND role = 'supplier'
+         AND regexp_replace(coalesce(tax_id, ''), '[^0-9A-Za-z]', '', 'g') = $2
+       ORDER BY created_at
+       LIMIT 1`,
+      [businessId, compact],
     );
     if (found.rows[0]) return found.rows[0].counterparty_id;
   }
